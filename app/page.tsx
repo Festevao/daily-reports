@@ -1,12 +1,15 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ArrowRight, Loader2 } from 'lucide-react'
+import { ArrowRight, Loader2, Mail, Search } from 'lucide-react'
 import { InputField } from '@/components/InputField'
 import { SelectionsModal } from '@/components/SelectionsModal'
+import { JobStatusModal } from '@/components/JobStatusModal'
+import { HelpModal, HelpTopic } from '@/components/HelpModal'
 import { ToastContainer, ToastMessage } from '@/components/Toast'
 
 interface FormState {
+  reportEmail: string
   jiraBaseUrl: string
   jiraEmail: string
   jiraApiToken: string
@@ -17,6 +20,7 @@ interface FormState {
 }
 
 interface FormErrors {
+  reportEmail?: string
   jiraBaseUrl?: string
   jiraEmail?: string
   jiraApiToken?: string
@@ -60,8 +64,10 @@ const OPENAI_LOGO = (
 )
 
 const STORAGE_KEY = 'daily-reports-config'
+const ENABLED_KEY = 'daily-reports-enabled'
 
 const defaultForm: FormState = {
+  reportEmail: '',
   jiraBaseUrl: '',
   jiraEmail: '',
   jiraApiToken: '',
@@ -70,6 +76,8 @@ const defaultForm: FormState = {
   slackToken: '',
   openaiToken: '',
 }
+
+const defaultEnabled = { jira: true, github: true, slack: true, openai: true }
 
 function loadFromStorage(): FormState {
   if (typeof window === 'undefined') return defaultForm
@@ -82,12 +90,26 @@ function loadFromStorage(): FormState {
   }
 }
 
+function loadEnabledFromStorage(): typeof defaultEnabled {
+  if (typeof window === 'undefined') return defaultEnabled
+  try {
+    const stored = localStorage.getItem(ENABLED_KEY)
+    if (!stored) return defaultEnabled
+    return { ...defaultEnabled, ...JSON.parse(stored) }
+  } catch {
+    return defaultEnabled
+  }
+}
+
 export default function SetupPage() {
   const [form, setForm] = useState<FormState>(defaultForm)
+  const [enabled, setEnabled] = useState(defaultEnabled)
   const [errors, setErrors] = useState<FormErrors>({})
   const [isLoading, setIsLoading] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false)
+  const [helpTopic, setHelpTopic] = useState<HelpTopic | null>(null)
 
   const addToast = (message: string) => {
     const id = crypto.randomUUID()
@@ -98,8 +120,28 @@ export default function SetupPage() {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }
 
+  const toggleIntegration = (key: keyof typeof defaultEnabled) => {
+    setEnabled((prev) => {
+      const next = { ...prev, [key]: !prev[key] }
+      localStorage.setItem(ENABLED_KEY, JSON.stringify(next))
+      return next
+    })
+    setErrors((prev) => {
+      const cleared = { ...prev }
+      if (key === 'jira') {
+        delete cleared.jiraBaseUrl; delete cleared.jiraEmail
+        delete cleared.jiraApiToken; delete cleared.jiraAccountId; delete cleared.jiraGroup
+      }
+      if (key === 'github') { delete cleared.githubToken; delete cleared.githubGroup }
+      if (key === 'slack') { delete cleared.slackToken; delete cleared.slackGroup }
+      if (key === 'openai') { delete cleared.openaiToken; delete cleared.openaiGroup }
+      return cleared
+    })
+  }
+
   useEffect(() => {
     setForm(loadFromStorage())
+    setEnabled(loadEnabledFromStorage())
   }, [])
 
   useEffect(() => {
@@ -116,13 +158,21 @@ export default function SetupPage() {
   const handleSubmit = async () => {
     const newErrors: FormErrors = {}
 
-    if (!form.jiraBaseUrl.trim()) newErrors.jiraBaseUrl = 'Informe a URL base do Jira'
-    if (!form.jiraEmail.trim()) newErrors.jiraEmail = 'Informe o e-mail do Jira'
-    if (!form.jiraApiToken.trim()) newErrors.jiraApiToken = 'Informe o API Token do Jira'
-    if (!form.jiraAccountId.trim()) newErrors.jiraAccountId = 'Informe o Account ID do Jira'
-    if (!form.githubToken.trim()) newErrors.githubToken = 'Informe o token do GitHub'
-    if (!form.slackToken.trim()) newErrors.slackToken = 'Informe o token do Slack'
-    if (!form.openaiToken.trim()) newErrors.openaiToken = 'Informe o token da OpenAI'
+    if (!form.reportEmail || !form.reportEmail.trim()) {
+      newErrors.reportEmail = 'Informe o e-mail para receber o relatório'
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.reportEmail.trim())) {
+      newErrors.reportEmail = 'Informe um e-mail válido'
+    }
+
+    if (enabled.jira) {
+      if (!form.jiraBaseUrl.trim()) newErrors.jiraBaseUrl = 'Informe a URL base do Jira'
+      if (!form.jiraEmail.trim()) newErrors.jiraEmail = 'Informe o e-mail do Jira'
+      if (!form.jiraApiToken.trim()) newErrors.jiraApiToken = 'Informe o API Token do Jira'
+      if (!form.jiraAccountId.trim()) newErrors.jiraAccountId = 'Informe o Account ID do Jira'
+    }
+    if (enabled.github && !form.githubToken.trim()) newErrors.githubToken = 'Informe o token do GitHub'
+    if (enabled.slack && !form.slackToken.trim()) newErrors.slackToken = 'Informe o token do Slack'
+    if (enabled.openai && !form.openaiToken.trim()) newErrors.openaiToken = 'Informe o token da OpenAI'
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors)
@@ -132,8 +182,11 @@ export default function SetupPage() {
     setIsLoading(true)
 
     try {
-      const [jiraRes, githubRes, slackRes, openaiRes] = await Promise.all([
-        fetch('/api/validate/jira', {
+      const validationCalls: Promise<Response>[] = []
+      const callKeys: string[] = []
+
+      if (enabled.jira) {
+        validationCalls.push(fetch('/api/validate/jira', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -142,39 +195,45 @@ export default function SetupPage() {
             apiToken: form.jiraApiToken,
             accountId: form.jiraAccountId,
           }),
-        }),
-        fetch('/api/validate/github', {
+        }))
+        callKeys.push('jira')
+      }
+      if (enabled.github) {
+        validationCalls.push(fetch('/api/validate/github', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token: form.githubToken }),
-        }),
-        fetch('/api/validate/slack', {
+        }))
+        callKeys.push('github')
+      }
+      if (enabled.slack) {
+        validationCalls.push(fetch('/api/validate/slack', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token: form.slackToken }),
-        }),
-        fetch('/api/validate/openai', {
+        }))
+        callKeys.push('slack')
+      }
+      if (enabled.openai) {
+        validationCalls.push(fetch('/api/validate/openai', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token: form.openaiToken }),
-        }),
-      ])
+        }))
+        callKeys.push('openai')
+      }
 
-      const [jiraData, githubData, slackData, openaiData] = await Promise.all([
-        jiraRes.json(),
-        githubRes.json(),
-        slackRes.json(),
-        openaiRes.json(),
-      ])
+      const responses = await Promise.all(validationCalls)
+      const results = await Promise.all(responses.map((r) => r.json()))
 
       setIsLoading(false)
 
       const validationErrors: FormErrors = {}
-
-      if (!jiraData.ok) validationErrors.jiraGroup = jiraData.message
-      if (!githubData.ok) validationErrors.githubGroup = githubData.message
-      if (!slackData.ok) validationErrors.slackGroup = slackData.message
-      if (!openaiData.ok) validationErrors.openaiGroup = openaiData.message
+      callKeys.forEach((key, i) => {
+        if (!results[i].ok) {
+          (validationErrors as Record<string, string>)[`${key}Group`] = results[i].message
+        }
+      })
 
       if (Object.keys(validationErrors).length > 0) {
         setErrors(validationErrors)
@@ -193,7 +252,7 @@ export default function SetupPage() {
     <main className="min-h-screen w-full flex flex-col items-center justify-center px-3 sm:px-4 py-8 sm:py-12">
       <div className="w-full max-w-2xl">
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/25 mb-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-linear-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/25 mb-4">
             <svg viewBox="0 0 24 24" className="w-8 h-8 text-white" fill="none" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
@@ -210,6 +269,8 @@ export default function SetupPage() {
             title="Jira"
             description="Rastreia suas tarefas e sprints"
             accentColor="blue"
+            enabled={enabled.jira}
+            onToggle={() => toggleIntegration('jira')}
             hasGroupError={!!errors.jiraGroup}
             groupError={errors.jiraGroup}
           >
@@ -221,7 +282,7 @@ export default function SetupPage() {
                   placeholder="https://seu-dominio.atlassian.net"
                   value={form.jiraBaseUrl}
                   onChange={setField('jiraBaseUrl')}
-                  tooltip="A URL base do seu workspace no Jira. Acesse app.atlassian.com, clique no seu workspace e copie o domínio no formato: https://seu-dominio.atlassian.net"
+                  onHelpClick={() => setHelpTopic('jira-base-url')}
                   error={errors.jiraBaseUrl}
                 />
               </div>
@@ -232,7 +293,7 @@ export default function SetupPage() {
                 placeholder="seu@email.com"
                 value={form.jiraEmail}
                 onChange={setField('jiraEmail')}
-                tooltip="O e-mail associado à sua conta Atlassian. É o mesmo e-mail usado para fazer login no Jira."
+                onHelpClick={() => setHelpTopic('jira-email')}
                 error={errors.jiraEmail}
               />
               <InputField
@@ -241,7 +302,7 @@ export default function SetupPage() {
                 placeholder="712020:abc123..."
                 value={form.jiraAccountId}
                 onChange={setField('jiraAccountId')}
-                tooltip="Seu ID de usuário único no Atlassian. Acesse: Perfil → Manage account → em seguida veja a URL no formato /people/{accountId}, ou peça ao admin do Jira."
+                onHelpClick={() => setHelpTopic('jira-account-id')}
                 error={errors.jiraAccountId}
               />
               <div className="sm:col-span-2">
@@ -252,7 +313,7 @@ export default function SetupPage() {
                   placeholder="ATATT3x..."
                   value={form.jiraApiToken}
                   onChange={setField('jiraApiToken')}
-                  tooltip="Token de API para autenticação. Acesse: id.atlassian.com/manage-profile/security/api-tokens → clique em 'Create API token', dê um nome e copie o token gerado."
+                  onHelpClick={() => setHelpTopic('jira-api-token')}
                   error={errors.jiraApiToken}
                 />
               </div>
@@ -264,6 +325,8 @@ export default function SetupPage() {
             title="GitHub"
             description="Monitora seus commits e pull requests"
             accentColor="slate"
+            enabled={enabled.github}
+            onToggle={() => toggleIntegration('github')}
             hasGroupError={!!errors.githubGroup}
             groupError={errors.githubGroup}
           >
@@ -274,7 +337,7 @@ export default function SetupPage() {
               placeholder="ghp_..."
               value={form.githubToken}
               onChange={setField('githubToken')}
-              tooltip="Token de acesso pessoal do GitHub. Acesse: github.com → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token. Selecione os escopos: repo, read:user, read:org."
+              onHelpClick={() => setHelpTopic('github-token')}
               error={errors.githubToken}
             />
           </IntegrationCard>
@@ -282,19 +345,21 @@ export default function SetupPage() {
           <IntegrationCard
             logo={SLACK_LOGO}
             title="Slack"
-            description="Envia relatórios no canal configurado"
+            description="Analisa seus canais e mensagens"
             accentColor="green"
+            enabled={enabled.slack}
+            onToggle={() => toggleIntegration('slack')}
             hasGroupError={!!errors.slackGroup}
             groupError={errors.slackGroup}
           >
             <InputField
               id="slack-token"
-              label="Bot Token"
+              label="User Token"
               type="password"
-              placeholder="xoxb-..."
+              placeholder="xoxp-..."
               value={form.slackToken}
               onChange={setField('slackToken')}
-              tooltip="Token do bot do Slack. Acesse: api.slack.com/apps → crie ou selecione seu app → OAuth & Permissions → Bot Token Scopes (adicione chat:write, channels:read, groups:read) → Install App → copie o 'Bot User OAuth Token' (começa com xoxb-)."
+              onHelpClick={() => setHelpTopic('slack-token')}
               error={errors.slackToken}
             />
           </IntegrationCard>
@@ -304,6 +369,8 @@ export default function SetupPage() {
             title="OpenAI"
             description="Gera o relatório com inteligência artificial"
             accentColor="violet"
+            enabled={enabled.openai}
+            onToggle={() => toggleIntegration('openai')}
             hasGroupError={!!errors.openaiGroup}
             groupError={errors.openaiGroup}
           >
@@ -314,15 +381,40 @@ export default function SetupPage() {
               placeholder="sk-..."
               value={form.openaiToken}
               onChange={setField('openaiToken')}
-              tooltip="Sua chave de API da OpenAI. Acesse: platform.openai.com/api-keys → clique em 'Create new secret key', dê um nome, copie a chave gerada (começa com sk-). Guarde em lugar seguro, ela não será exibida novamente."
+              onHelpClick={() => setHelpTopic('openai-token')}
               error={errors.openaiToken}
             />
           </IntegrationCard>
 
+          <div className={[
+            'rounded-2xl border p-5 backdrop-blur-sm bg-slate-800/60',
+            errors.reportEmail ? 'border-red-500/60 bg-red-500/5' : 'border-indigo-500/40',
+          ].join(' ')}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-9 h-9 rounded-lg border border-indigo-500/30 bg-indigo-500/20 flex items-center justify-center">
+                <Mail className="w-4 h-4 text-indigo-300" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-slate-100">Destinatário do relatório</h2>
+                <p className="text-xs text-slate-400">O relatório será enviado para este e-mail</p>
+              </div>
+            </div>
+            <InputField
+              id="report-email"
+              label="E-mail"
+              type="email"
+              placeholder="voce@email.com"
+              value={form.reportEmail}
+              onChange={setField('reportEmail')}
+              onHelpClick={() => setHelpTopic('report-email')}
+              error={errors.reportEmail}
+            />
+          </div>
+
           <button
             onClick={handleSubmit}
             disabled={isLoading}
-            className="w-full flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white font-semibold text-sm transition-all duration-200 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/40 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100 mt-1"
+            className="w-full flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-linear-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white font-semibold text-sm transition-all duration-200 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/40 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100 mt-1"
           >
             {isLoading ? (
               <>
@@ -336,20 +428,33 @@ export default function SetupPage() {
               </>
             )}
           </button>
+
+          <button
+            onClick={() => setIsStatusModalOpen(true)}
+            className="w-full flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl border border-slate-700 hover:border-slate-600 bg-slate-800/40 hover:bg-slate-800/70 text-slate-400 hover:text-slate-200 text-sm font-medium transition-all duration-200 active:scale-[0.99]"
+          >
+            <Search className="w-4 h-4" />
+            Consultar posição na fila
+          </button>
         </div>
       </div>
 
       <SelectionsModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+        enabledIntegrations={enabled}
+        reportEmail={form.reportEmail}
         credentials={{
           jiraBaseUrl: form.jiraBaseUrl,
           jiraEmail: form.jiraEmail,
           jiraApiToken: form.jiraApiToken,
           githubToken: form.githubToken,
           slackToken: form.slackToken,
+          openaiToken: form.openaiToken,
         }}
       />
+      <JobStatusModal isOpen={isStatusModalOpen} onClose={() => setIsStatusModalOpen(false)} />
+      <HelpModal topic={helpTopic} onClose={() => setHelpTopic(null)} />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </main>
   )
@@ -387,6 +492,8 @@ interface IntegrationCardProps {
   title: string
   description: string
   accentColor: keyof typeof accentMap
+  enabled: boolean
+  onToggle: () => void
   hasGroupError: boolean
   groupError?: string
   children: React.ReactNode
@@ -397,6 +504,8 @@ function IntegrationCard({
   title,
   description,
   accentColor,
+  enabled,
+  onToggle,
   hasGroupError,
   groupError,
   children,
@@ -406,27 +515,47 @@ function IntegrationCard({
   return (
     <div
       className={[
-        'rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200',
-        hasGroupError
+        'rounded-2xl border p-5 backdrop-blur-sm transition-all duration-300',
+        !enabled
+          ? 'border-slate-700/50 bg-slate-900/40'
+          : hasGroupError
           ? `${accent.errorBorder} ${accent.errorBg} bg-slate-800/80`
           : `${accent.border} bg-slate-800/60 hover:bg-slate-800/80`,
       ].join(' ')}
     >
-      <div className="flex items-center gap-3 mb-4">
-        <div className={`w-9 h-9 rounded-lg border flex items-center justify-center ${accent.icon}`}>
-          {logo}
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-3">
+          <div className={`w-9 h-9 rounded-lg border flex items-center justify-center transition-opacity duration-300 ${accent.icon} ${!enabled ? 'opacity-40' : ''}`}>
+            {logo}
+          </div>
+          <div className={`transition-opacity duration-300 ${!enabled ? 'opacity-40' : ''}`}>
+            <h2 className="text-sm font-semibold text-slate-100">{title}</h2>
+            <p className="text-xs text-slate-400">{description}</p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-sm font-semibold text-slate-100">{title}</h2>
-          <p className="text-xs text-slate-400">{description}</p>
-        </div>
+        <button
+          type="button"
+          onClick={onToggle}
+          className={[
+            'relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200 focus:outline-none',
+            enabled ? 'bg-blue-500' : 'bg-slate-600',
+          ].join(' ')}
+          aria-label={enabled ? 'Desativar integração' : 'Ativar integração'}
+        >
+          <span className={[
+            'absolute top-0.5 inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+            enabled ? 'translate-x-[18px]' : 'translate-x-0.5',
+          ].join(' ')} />
+        </button>
       </div>
-      {children}
-      {groupError && (
-        <p className="mt-3 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
-          {groupError}
-        </p>
-      )}
+      <div className={`transition-all duration-300 ${!enabled ? 'opacity-30 pointer-events-none select-none' : ''}`}>
+        {children}
+        {groupError && (
+          <p className="mt-3 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+            {groupError}
+          </p>
+        )}
+      </div>
     </div>
   )
 }

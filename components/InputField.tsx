@@ -1,8 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Eye, EyeOff } from 'lucide-react'
-import { Tooltip } from './Tooltip'
+import { Eye, EyeOff, Info } from 'lucide-react'
 
 interface InputFieldProps {
   id: string
@@ -11,7 +10,8 @@ interface InputFieldProps {
   placeholder?: string
   value: string
   onChange: (value: string) => void
-  tooltip: string
+  tooltip?: string
+  onHelpClick?: () => void
   error?: string
 }
 
@@ -22,7 +22,7 @@ export function InputField({
   placeholder,
   value,
   onChange,
-  tooltip,
+  onHelpClick,
   error,
 }: InputFieldProps) {
   const [isVisible, setIsVisible] = useState(false)
@@ -31,11 +31,20 @@ export function InputField({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <label htmlFor={id} className="text-sm font-medium text-slate-300">
           {label}
         </label>
-        <Tooltip content={tooltip} />
+        {onHelpClick && (
+          <button
+            type="button"
+            onClick={onHelpClick}
+            className="text-slate-500 hover:text-blue-400 transition-colors"
+            aria-label={`Como obter: ${label}`}
+          >
+            <Info className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
       <div className="relative">
         <input
