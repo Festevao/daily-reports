@@ -68,11 +68,18 @@ export function MultiSelect({
 
   return (
     <div ref={containerRef} className="relative w-full">
-      <button
-        type="button"
+      <div
+        role="combobox"
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        tabIndex={0}
         onClick={() => { setIsOpen((v) => !v); setSearch('') }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsOpen((v) => !v); setSearch('') }
+          if (e.key === 'Escape') { setIsOpen(false); setSearch('') }
+        }}
         className={[
-          'w-full min-h-[42px] rounded-lg border bg-slate-800/60 px-3 py-2 text-left text-sm',
+          'w-full min-h-[42px] rounded-lg border bg-slate-800/60 px-3 py-2 text-left text-sm cursor-pointer',
           'flex items-center justify-between gap-2 outline-none transition-all duration-200',
           'focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500',
           error
@@ -98,13 +105,16 @@ export function MultiSelect({
                     </span>
                   ) : null}
                   <span className="max-w-24 truncate">{opt.label}</span>
-                  <button
-                    type="button"
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Remover ${opt.label}`}
                     onClick={(e) => removeChip(opt.value, e)}
-                    className="text-blue-400 hover:text-blue-200 transition-colors"
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onChange(selected.filter((v) => v !== opt.value)) } }}
+                    className="text-blue-400 hover:text-blue-200 transition-colors cursor-pointer"
                   >
                     <X className="w-3 h-3" />
-                  </button>
+                  </span>
                 </span>
               ))}
               {hiddenCount > 0 && (
@@ -118,7 +128,7 @@ export function MultiSelect({
         <ChevronDown
           className={`w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
         />
-      </button>
+      </div>
 
       {isOpen && (
         <div className="absolute z-30 left-0 right-0 mt-1.5 rounded-xl border border-slate-600 bg-slate-800 shadow-xl shadow-black/30 overflow-hidden">
