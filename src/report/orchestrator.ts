@@ -2,7 +2,7 @@ import { extractJiraActivities } from '../extractors/jira.extractor'
 import { extractGitHubActivities } from '../extractors/github.extractor'
 import { extractSlackActivities } from '../extractors/slack.extractor'
 import { generateDaySummary } from '../extractors/openai.summarizer'
-import { DailyReport, OpenAIUsage, ReportOutput } from '../types/report.types'
+import { DailyReport, GitHubActivity, SlackActivity, OpenAIUsage, ReportOutput } from '../types/report.types'
 import { ReportPayload } from '../email/template'
 import { step } from '../logger'
 
@@ -49,12 +49,31 @@ export async function buildReport(payload: ReportPayload): Promise<ReportOutput>
     step(`🔵 Jira — ${total} atividade(s) extraída(s)`)
   }
 
+  let githubByDay: Map<string, GitHubActivity[]> = new Map()
   if (integrations.github) {
-    step(`⚫ GitHub — gerando dados para ${integrations.github.repoFullNames.length} repositório(s) (mock)`)
+    step(`⚫ GitHub — extraindo atividades em ${integrations.github.repoFullNames.length} repositório(s)...`)
+    githubByDay = await extractGitHubActivities(
+      integrations.github.token,
+      integrations.github.repoFullNames,
+      startDate,
+      endDate
+    )
+    const total = [...githubByDay.values()].reduce((a, v) => a + v.length, 0)
+    step(`⚫ GitHub — ${total} atividade(s) extraída(s)`)
   }
 
+  let slackByDay: Map<string, SlackActivity[]> = new Map()
   if (integrations.slack) {
-    step(`🟢 Slack — gerando dados para ${integrations.slack.channelIds.length} canal(is) (mock)`)
+    step(`🟢 Slack — extraindo atividades em ${integrations.slack.channelIds.length} canal(is) selecionado(s)...`)
+    slackByDay = await extractSlackActivities(
+      integrations.slack.token,
+      integrations.slack.channelIds,
+      integrations.slack.includeDirectMessages,
+      startDate,
+      endDate
+    )
+    const total = [...slackByDay.values()].reduce((a, v) => a + v.length, 0)
+    step(`🟢 Slack — ${total} atividade(s) extraída(s)`)
   }
 
   const hasOpenAI = !!integrations.openai?.apiKey
@@ -68,19 +87,9 @@ export async function buildReport(payload: ReportPayload): Promise<ReportOutput>
 
   for (const date of days) {
     const jira = jiraByDay.get(date) ?? []
+    const github = githubByDay.get(date) ?? []
 
-    const github = integrations.github
-      ? extractGitHubActivities(integrations.github.token, integrations.github.repoFullNames, date)
-      : []
-
-    const slack = integrations.slack
-      ? extractSlackActivities(
-          integrations.slack.token,
-          integrations.slack.channelIds,
-          integrations.slack.includeDirectMessages,
-          date
-        )
-      : []
+    const slack = slackByDay.get(date) ?? []
 
     let aiSummary: string | undefined
 

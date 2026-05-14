@@ -72,13 +72,32 @@ function jiraTypeLabel(type: string): string {
 function githubTypeLabel(type: string): string {
   const map: Record<string, string> = {
     COMMIT: '📦 Commit',
+    PUSH: '⬆️ Push',
     PR_OPENED: '🔀 PR aberto',
+    PR_CLOSED: '❌ PR fechado',
     PR_MERGED: '✅ PR mergeado',
+    PR_REOPENED: '🔁 PR reaberto',
+    PR_DRAFT_CREATED: '📝 PR rascunho criado',
+    PR_READY_FOR_REVIEW: '👁️ PR pronto para revisão',
+    PR_APPROVED: '✅ PR aprovado',
+    PR_CHANGES_REQUESTED: '🔄 Alterações solicitadas',
     PR_REVIEWED: '👀 PR revisado',
     PR_COMMENTED: '💬 Comentário em PR',
-    PR_CLOSED: '❌ PR fechado',
+    REVIEW_COMMENT: '💬 Comentário de revisão',
+    ISSUE_COMMENT: '💬 Comentário em issue/PR',
+    REVIEW_REQUESTED: '🙋 Revisão solicitada',
+    LABEL_ADDED: '🏷️ Label adicionada',
+    LABEL_REMOVED: '🏷️ Label removida',
+    ASSIGNEE_CHANGED: '👤 Responsável alterado',
+    MILESTONE_CHANGED: '🎯 Milestone alterado',
+    BRANCH_CREATED: '🌿 Branch criada',
+    BRANCH_DELETED: '🗑️ Branch deletada',
+    RELEASE_PUBLISHED: '🚀 Release publicada',
+    FORCE_PUSH: '⚠️ Force push',
     ISSUE_OPENED: '🐛 Issue aberta',
     ISSUE_CLOSED: '✅ Issue fechada',
+    ISSUE_REOPENED: '🔁 Issue reaberta',
+    COMMIT_COMMENT: '💬 Comentário em commit',
   }
   return map[type] ?? `📌 ${type}`
 }
@@ -86,10 +105,15 @@ function githubTypeLabel(type: string): string {
 function slackTypeLabel(type: string): string {
   const map: Record<string, string> = {
     MESSAGE_SENT: '💬 Mensagem enviada',
+    THREAD_STARTED: '🧵 Thread iniciada',
     THREAD_REPLY: '↩️ Resposta em thread',
+    MESSAGE_EDITED: '✏️ Mensagem editada',
+    DM_SENT: '📩 DM enviada',
+    DM_RECEIVED: '📨 DM recebida',
     REACTION_ADDED: '😄 Reação adicionada',
-    FILE_SHARED: '📁 Arquivo compartilhado',
-    DM_SENT: '📩 Mensagem direta',
+    REACTION_RECEIVED: '⭐ Reação recebida',
+    DISCUSSION_CIRCUIT: '🔄 Circuito de discussão',
+    CALL_SUMMARY: '📞 Chamada / Huddle',
   }
   return map[type] ?? `📣 ${type}`
 }
@@ -162,9 +186,92 @@ function renderJiraActivities(activities: JiraActivity[], jiraBaseUrl?: string):
   }).join('')
 }
 
+function renderGitHubMeta(a: GitHubActivity): string {
+  const m = a.metadata as Record<string, unknown> | undefined
+  if (!m) return ''
+  const parts: string[] = []
+
+  if (a.type === 'COMMIT') {
+    const ins = (m.insertions as number) ?? 0
+    const del = (m.deletions as number) ?? 0
+    const files = (m.filesChanged as number) ?? 0
+    if (files > 0 || ins > 0 || del > 0) {
+      parts.push(`<div class="gh-stats"><span class="gh-stat-files">📁 ${files} arquivo${files !== 1 ? 's' : ''}</span><span class="gh-stat-add">+${ins}</span><span class="gh-stat-del">−${del}</span></div>`)
+    }
+    const fileList = m.files as Array<{ filename: string; additions: number; deletions: number }> | undefined
+    if (fileList && fileList.length > 0) {
+      const rows = fileList.slice(0, 20).map(
+        (f) => `<tr><td class="gh-file-name">${esc(f.filename)}</td><td class="gh-file-add">+${f.additions}</td><td class="gh-file-del">−${f.deletions}</td></tr>`
+      ).join('')
+      parts.push(`<table class="gh-file-table"><tbody>${rows}</tbody></table>`)
+      if (fileList.length > 20) parts.push(`<span class="meta-tag">+${fileList.length - 20} arquivo(s) omitido(s)</span>`)
+    }
+  }
+
+  const body = (m.body as string) || (m.comment as string)
+  if (body) {
+    parts.push(`<blockquote class="meta-comment-block">${esc(body)}</blockquote>`)
+  }
+
+  if (m.path) {
+    parts.push(`<span class="meta-tag">📄 <code>${esc(m.path as string)}</code></span>`)
+  }
+
+  if (m.branch && a.type !== 'COMMIT') {
+    parts.push(`<span class="meta-tag">🌿 ${esc(m.branch as string)}</span>`)
+  }
+
+  if (m.label) {
+    parts.push(`<span class="meta-tag">🏷️ ${esc(m.label as string)}</span>`)
+  }
+
+  if (m.assignee) {
+    const action = m.action === 'assigned' ? 'atribuído a' : 'removido de'
+    parts.push(`<span class="meta-tag">👤 ${esc(action)} ${esc(m.assignee as string)}</span>`)
+  }
+
+  if (m.milestone) {
+    const action = m.action === 'milestoned' ? 'adicionado a' : 'removido de'
+    parts.push(`<span class="meta-tag">🎯 ${esc(action)} ${esc(m.milestone as string)}</span>`)
+  }
+
+  if (m.state && (a.type === 'PR_APPROVED' || a.type === 'PR_CHANGES_REQUESTED' || a.type === 'PR_REVIEWED')) {
+    const stateLabel: Record<string, string> = {
+      APPROVED: '✅ Aprovado',
+      CHANGES_REQUESTED: '🔄 Alterações solicitadas',
+      COMMENTED: '💬 Comentado',
+      DISMISSED: '🚫 Dispensado',
+    }
+    parts.push(`<span class="meta-tag">${stateLabel[m.state as string] ?? esc(m.state as string)}</span>`)
+  }
+
+  if (m.tagName && a.type === 'RELEASE_PUBLISHED') {
+    parts.push(`<span class="meta-tag">🏷️ ${esc(m.tagName as string)}${m.prerelease ? ' <em>(pre-release)</em>' : ''}</span>`)
+  }
+
+  return parts.length > 0 ? `<div class="metadata">${parts.join('')}</div>` : ''
+}
+
 function renderGitHubActivities(activities: GitHubActivity[]): string {
   if (activities.length === 0) return '<p class="empty-state">Nenhuma atividade no GitHub neste dia.</p>'
-  return activities.map((a) => `
+
+  const commits = activities.filter((a) => a.type === 'COMMIT')
+  const totalIns = commits.reduce((n, a) => n + (((a.metadata as Record<string, unknown>)?.insertions as number) ?? 0), 0)
+  const totalDel = commits.reduce((n, a) => n + (((a.metadata as Record<string, unknown>)?.deletions as number) ?? 0), 0)
+  const totalFiles = new Set(
+    commits.flatMap((a) => ((a.metadata as Record<string, unknown>)?.files as Array<{filename: string}> ?? []).map((f) => f.filename))
+  ).size
+
+  const statsBar = commits.length > 0
+    ? `<div class="gh-day-stats">
+        <span>📦 ${commits.length} commit${commits.length !== 1 ? 's' : ''}</span>
+        <span>📁 ${totalFiles} arquivo${totalFiles !== 1 ? 's' : ''} alterado${totalFiles !== 1 ? 's' : ''}</span>
+        <span class="gh-stat-add">+${totalIns} linhas</span>
+        <span class="gh-stat-del">−${totalDel} linhas</span>
+      </div>`
+    : ''
+
+  const items = activities.map((a) => `
     <div class="activity-item activity-github">
       <div class="activity-header">
         <span class="activity-type">${esc(githubTypeLabel(a.type))}</span>
@@ -172,23 +279,164 @@ function renderGitHubActivities(activities: GitHubActivity[]): string {
         <span class="activity-time">${formatDateTime(a.createdAt)}</span>
       </div>
       ${a.title ? `<div class="activity-title">${a.url ? `<a href="${esc(a.url)}" target="_blank">${esc(a.title)}</a>` : esc(a.title)}</div>` : ''}
-      ${renderMetadata(a.metadata)}
+      ${renderGitHubMeta(a)}
     </div>
   `).join('')
+
+  return statsBar + items
+}
+
+function renderSlackMeta(a: SlackActivity): string {
+  const m = a.metadata as Record<string, unknown> | undefined
+  if (!m) return ''
+  const parts: string[] = []
+
+  if (a.type === 'CALL_SUMMARY') {
+    const dur = m.durationMinutes as number | undefined
+    const participants = (m.participants as string[] | undefined) ?? []
+    const title = m.title as string | undefined
+    const summary = m.summary as string | undefined
+    const callType = m.callType as string | undefined
+    const chatMessages = m.chatMessages as Array<{ author: string; text: string; createdAt: string; isUser: boolean }> | undefined
+    const aiNotes = m.aiNotes as string | undefined
+    const aiNotesAvailable = m.aiNotesAvailable as boolean | undefined
+
+    const callTypeLabel: Record<string, string> = {
+      huddle: '🎙️ Círculo (DM)',
+      channel_huddle: '🎙️ Círculo em canal',
+      group_huddle: '🎙️ Círculo em grupo',
+      call: '📹 Chamada',
+      group_call: '📹 Chamada em grupo',
+      ai_summary: '🤖 Resumo IA',
+    }
+
+    parts.push(`<div class="slack-circuit-card">`)
+    if (title) parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">📞 Título</span><span>${esc(title)}</span></div>`)
+    if (callType && callTypeLabel[callType]) parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">🔖 Tipo</span><span>${esc(callTypeLabel[callType])}</span></div>`)
+    if (dur !== undefined) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">⏱ Duração</span><span>${dur < 1 ? '< 1 min' : `${dur} min`}</span></div>`)
+    }
+    if (participants.length > 0) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">👥 Participantes</span><span>${esc(participants.join(', '))}</span></div>`)
+    }
+    if (summary) {
+      parts.push(`<div class="slack-circuit-row slack-circuit-preview"><span class="slack-circuit-label">📝 Resumo IA</span><blockquote class="meta-comment-block">${esc(summary)}</blockquote></div>`)
+    }
+    if (aiNotes && aiNotes.length > 80) {
+      parts.push(`<div class="slack-circuit-row slack-circuit-preview"><span class="slack-circuit-label">🗒️ Anotações IA</span><blockquote class="meta-comment-block">${esc(aiNotes)}</blockquote></div>`)
+    } else if (aiNotesAvailable || (aiNotes && aiNotes.length <= 80)) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">🗒️ Anotações IA</span><span class="meta-tag">✅ disponíveis no Slack (canvas)</span></div>`)
+    }
+    if (chatMessages && chatMessages.length > 0) {
+      const rows = chatMessages.map((entry) => {
+        const time = entry.createdAt.slice(11, 16)
+        const cls = entry.isUser ? 'circuit-msg circuit-msg-user' : 'circuit-msg'
+        return `<div class="${cls}"><span class="circuit-msg-author">${esc(entry.author)}</span><span class="circuit-msg-time">${time}</span><span class="circuit-msg-text">${esc(entry.text)}</span></div>`
+      }).join('')
+      parts.push(`<div class="slack-circuit-row slack-circuit-preview"><span class="slack-circuit-label">💬 Chat da chamada</span><div class="circuit-transcript">${rows}</div></div>`)
+    }
+    parts.push(`</div>`)
+    return `<div class="metadata">${parts.join('')}</div>`
+  }
+
+  if (a.type === 'DISCUSSION_CIRCUIT') {
+    const participants = (m.participants as string[] | undefined) ?? []
+    const dur = m.durationMinutes as number | undefined
+    const msgCount = m.messageCount as number | undefined
+    const userCount = m.userMessageCount as number | undefined
+    const aiSummary = m.aiSummary as string | undefined
+    const chatMessages = (m.chatMessages ?? m.transcript) as Array<{ author: string; text: string; createdAt: string; isUser: boolean }> | undefined
+
+    parts.push(`<div class="slack-circuit-card">`)
+    if (dur !== undefined) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">⏱ Duração</span><span>${dur < 1 ? '< 1 min' : `${dur} min`}</span></div>`)
+    }
+    if (msgCount !== undefined) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">💬 Mensagens</span><span>${msgCount}${userCount !== undefined ? ` (${userCount} suas)` : ''}</span></div>`)
+    }
+    if (participants.length > 0) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">👥 Participantes</span><span>${esc(participants.join(', '))}</span></div>`)
+    }
+    if (aiSummary) {
+      parts.push(`<div class="slack-circuit-row slack-circuit-preview"><span class="slack-circuit-label">🤖 Resumo IA</span><blockquote class="meta-comment-block">${esc(aiSummary)}</blockquote></div>`)
+    }
+    if (chatMessages && chatMessages.length > 0) {
+      const rows = chatMessages.map((entry) => {
+        const time = entry.createdAt.slice(11, 16)
+        const cls = entry.isUser ? 'circuit-msg circuit-msg-user' : 'circuit-msg'
+        return `<div class="${cls}"><span class="circuit-msg-author">${esc(entry.author)}</span><span class="circuit-msg-time">${time}</span><span class="circuit-msg-text">${esc(entry.text)}</span></div>`
+      }).join('')
+      parts.push(`<div class="slack-circuit-row slack-circuit-preview"><span class="slack-circuit-label">💬 Chat da chamada</span><div class="circuit-transcript">${rows}</div></div>`)
+    }
+    parts.push(`</div>`)
+    return `<div class="metadata">${parts.join('')}</div>`
+  }
+
+  const text = (m.text as string | undefined) || (m.comment as string | undefined)
+  if (text) {
+    parts.push(`<blockquote class="meta-comment-block">${esc(text)}</blockquote>`)
+  }
+
+  if (m.reaction) {
+    parts.push(`<span class="meta-tag">:${esc(m.reaction as string)}: ${m.count !== undefined ? `×${m.count}` : ''}</span>`)
+  }
+
+  if (m.reactors && Array.isArray(m.reactors) && m.reactors.length > 0) {
+    parts.push(`<span class="meta-tag">👤 ${esc((m.reactors as string[]).join(', '))}</span>`)
+  }
+
+  if (m.to) {
+    parts.push(`<span class="meta-tag">→ ${esc(m.to as string)}</span>`)
+  }
+
+  if (m.from && a.type === 'DM_RECEIVED') {
+    parts.push(`<span class="meta-tag">← de ${esc(m.from as string)}</span>`)
+  }
+
+  if (m.threadTs) {
+    parts.push(`<span class="meta-tag">🧵 thread</span>`)
+  }
+
+  if (m.editedAt) {
+    parts.push(`<span class="meta-tag">✏️ editado ${esc(String(m.editedAt).slice(0, 16).replace('T', ' '))}</span>`)
+  }
+
+  return parts.length > 0 ? `<div class="metadata">${parts.join('')}</div>` : ''
 }
 
 function renderSlackActivities(activities: SlackActivity[]): string {
   if (activities.length === 0) return '<p class="empty-state">Nenhuma atividade no Slack neste dia.</p>'
-  return activities.map((a) => `
+
+  const circuits = activities.filter((a) => a.type === 'DISCUSSION_CIRCUIT')
+  const msgs = activities.filter((a) => a.type !== 'DISCUSSION_CIRCUIT')
+
+  const callCount = activities.filter((a) => a.type === 'CALL_SUMMARY').length
+  const channelMsgCount = activities.filter((a) => ['MESSAGE_SENT', 'THREAD_STARTED', 'THREAD_REPLY', 'MESSAGE_EDITED'].includes(a.type)).length
+  const dmSentCount = activities.filter((a) => a.type === 'DM_SENT').length
+  const dmRecvCount = activities.filter((a) => a.type === 'DM_RECEIVED').length
+  const statsBar = activities.length > 0
+    ? `<div class="gh-day-stats">
+        ${channelMsgCount > 0 ? `<span>💬 ${channelMsgCount} msg(s) em canal</span>` : ''}
+        ${dmSentCount > 0 || dmRecvCount > 0 ? `<span>📩 DMs: ${dmSentCount} enviada(s) / ${dmRecvCount} recebida(s)</span>` : ''}
+        ${circuits.length > 0 ? `<span>🔄 ${circuits.length} circuito(s)</span>` : ''}
+        ${callCount > 0 ? `<span>📞 ${callCount} chamada(s)</span>` : ''}
+        <span>😄 ${activities.filter((a) => a.type === 'REACTION_ADDED').length} reação(ões) dada(s)</span>
+        <span>⭐ ${activities.filter((a) => a.type === 'REACTION_RECEIVED').length} reação(ões) recebida(s)</span>
+      </div>`
+    : ''
+
+  const items = activities.map((a) => `
     <div class="activity-item activity-slack">
       <div class="activity-header">
         <span class="activity-type">${esc(slackTypeLabel(a.type))}</span>
         <span class="activity-key">${esc(a.channelName ?? a.channel)}</span>
         <span class="activity-time">${formatDateTime(a.createdAt)}</span>
       </div>
-      ${renderMetadata(a.metadata)}
+      ${renderSlackMeta(a)}
     </div>
   `).join('')
+
+  return statsBar + items
 }
 
 function renderDaySection(day: DailyReport, index: number, jiraBaseUrl?: string): string {
@@ -568,6 +816,103 @@ export function buildHtmlReport(output: ReportOutput): string {
       border-radius: 4px;
       align-self: flex-start;
     }
+
+    /* ── GITHUB STATS ── */
+    .gh-day-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.5rem 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .gh-stats {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      font-size: 0.75rem;
+      margin-top: 0.3rem;
+    }
+    .gh-stat-files { color: var(--text-muted); }
+    .gh-stat-add { color: #4ade80; font-weight: 600; }
+    .gh-stat-del { color: #f87171; font-weight: 600; }
+    .gh-file-table {
+      margin-top: 0.4rem;
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.72rem;
+    }
+    .gh-file-table td {
+      padding: 0.15rem 0.4rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .gh-file-name {
+      color: var(--text);
+      font-family: monospace;
+      word-break: break-all;
+    }
+    .gh-file-add { color: #4ade80; text-align: right; white-space: nowrap; }
+    .gh-file-del { color: #f87171; text-align: right; white-space: nowrap; }
+
+    /* ── SLACK DISCUSSION CIRCUIT ── */
+    .slack-circuit-card {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      padding: 0.6rem 0.85rem;
+      background: rgba(16, 185, 129, 0.07);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+      border-radius: 8px;
+      font-size: 0.78rem;
+    }
+    .slack-circuit-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: baseline;
+    }
+    .slack-circuit-label {
+      color: var(--text-muted);
+      min-width: 100px;
+      flex-shrink: 0;
+      font-size: 0.72rem;
+    }
+    .slack-circuit-preview {
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .slack-circuit-preview .slack-circuit-label {
+      min-width: unset;
+    }
+    .circuit-transcript {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 280px;
+      overflow-y: auto;
+      background: rgba(0,0,0,0.03);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      margin-top: 4px;
+    }
+    .circuit-msg {
+      display: grid;
+      grid-template-columns: 110px 46px 1fr;
+      gap: 6px;
+      font-size: 0.75rem;
+      padding: 2px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .circuit-msg:last-child { border-bottom: none; }
+    .circuit-msg-user { background: rgba(99,102,241,0.07); border-radius: 4px; }
+    .circuit-msg-author { font-weight: 600; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .circuit-msg-time { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .circuit-msg-text { word-break: break-word; color: var(--text); }
 
     /* ── AI SUMMARY ── */
     .ai-summary-card {

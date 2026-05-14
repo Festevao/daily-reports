@@ -38,13 +38,32 @@ export interface JiraActivity {
 
 export type GitHubActivityType =
   | 'COMMIT'
+  | 'PUSH'
   | 'PR_OPENED'
+  | 'PR_CLOSED'
   | 'PR_MERGED'
+  | 'PR_REOPENED'
+  | 'PR_DRAFT_CREATED'
+  | 'PR_READY_FOR_REVIEW'
+  | 'PR_APPROVED'
+  | 'PR_CHANGES_REQUESTED'
   | 'PR_REVIEWED'
   | 'PR_COMMENTED'
-  | 'PR_CLOSED'
+  | 'REVIEW_COMMENT'
+  | 'ISSUE_COMMENT'
+  | 'REVIEW_REQUESTED'
+  | 'LABEL_ADDED'
+  | 'LABEL_REMOVED'
+  | 'ASSIGNEE_CHANGED'
+  | 'MILESTONE_CHANGED'
+  | 'BRANCH_CREATED'
+  | 'BRANCH_DELETED'
+  | 'RELEASE_PUBLISHED'
+  | 'FORCE_PUSH'
   | 'ISSUE_OPENED'
   | 'ISSUE_CLOSED'
+  | 'ISSUE_REOPENED'
+  | 'COMMIT_COMMENT'
 
 export interface GitHubActivity {
   type: GitHubActivityType
@@ -59,10 +78,15 @@ export interface GitHubActivity {
 
 export type SlackActivityType =
   | 'MESSAGE_SENT'
+  | 'THREAD_STARTED'
   | 'THREAD_REPLY'
-  | 'REACTION_ADDED'
-  | 'FILE_SHARED'
+  | 'MESSAGE_EDITED'
   | 'DM_SENT'
+  | 'DM_RECEIVED'
+  | 'REACTION_ADDED'
+  | 'REACTION_RECEIVED'
+  | 'DISCUSSION_CIRCUIT'
+  | 'CALL_SUMMARY'
 
 export interface SlackActivity {
   type: SlackActivityType

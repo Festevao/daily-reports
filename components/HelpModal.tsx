@@ -219,11 +219,12 @@ const HELP_CONTENT: Record<HelpTopic, HelpContent> = {
       { label: 'im:read', description: 'Listar conversas diretas abertas' },
       { label: 'mpim:history', description: 'Ler mensagens em grupos de mensagens diretas' },
       { label: 'mpim:read', description: 'Listar grupos de mensagens diretas abertos' },
+      { label: 'users:read', description: 'Resolver nomes de usuários a partir dos IDs (exibir nomes reais nos relatórios)' },
     ],
     links: [
       { label: 'Meus Apps do Slack', url: 'https://api.slack.com/apps' },
     ],
-    finalTip: 'O token começa com "xoxp-". Este token representa você — qualquer ação feita com ele aparece como se fosse você quem fez.',
+    finalTip: 'O token começa com "xoxp-". Atenção: se você adicionar novos escopos depois de já ter instalado o app, o token existente NÃO é atualizado automaticamente — é necessário clicar em "Reinstall to Workspace" novamente para gerar um token com os novos escopos.',
   },
 
   'openai-token': {
