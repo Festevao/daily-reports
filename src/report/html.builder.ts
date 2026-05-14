@@ -1,9 +1,10 @@
-import { ReportOutput, DailyReport, JiraActivity, GitHubActivity, SlackActivity } from '../types/report.types'
+import { ReportOutput, DailyReport, JiraActivity, GitHubActivity, SlackActivity, GoogleActivity } from '../types/report.types'
 
 const PLATFORM_COLORS = {
   jira: { bg: '#1e40af', text: '#93c5fd', border: '#3b82f6', badge: '#2563eb' },
   github: { bg: '#1f2937', text: '#d1d5db', border: '#6b7280', badge: '#374151' },
   slack: { bg: '#14532d', text: '#86efac', border: '#22c55e', badge: '#15803d' },
+  google: { bg: '#1a3a2a', text: '#6ee7b7', border: '#10b981', badge: '#059669' },
   ai: { bg: '#4c1d95', text: '#c4b5fd', border: '#8b5cf6', badge: '#6d28d9' },
 }
 
@@ -439,61 +440,196 @@ function renderSlackActivities(activities: SlackActivity[]): string {
   return statsBar + items
 }
 
+function googleTypeLabel(type: string): string {
+  const map: Record<string, string> = {
+    CALENDAR_EVENT: '📅 Evento',
+    MEET_CALL: '📹 Google Meet',
+  }
+  return map[type] ?? `🔗 ${type}`
+}
+
+function renderGoogleMeta(a: GoogleActivity): string {
+  const m = a.metadata as Record<string, unknown> | undefined
+  if (!m) return ''
+  const parts: string[] = []
+
+  if (a.type === 'CALENDAR_EVENT') {
+    const dur = m.durationMinutes as number | undefined
+    const attendees = (m.attendees as string[] | undefined) ?? []
+    const description = m.description as string | undefined
+    const location = m.location as string | undefined
+    const meetLink = m.meetLink as string | undefined
+    const htmlLink = m.htmlLink as string | undefined
+    const start = m.start as string | undefined
+    const end = m.end as string | undefined
+    const userResponseStatus = m.userResponseStatus as string | undefined
+
+    const responseLabel: Record<string, string> = {
+      accepted: '✅ Aceito',
+      tentative: '❓ Talvez',
+      needsAction: '⏳ Aguardando resposta',
+    }
+
+    parts.push(`<div class="slack-circuit-card">`)
+    if (userResponseStatus && responseLabel[userResponseStatus]) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">📋 Sua resposta</span><span class="meta-tag">${esc(responseLabel[userResponseStatus])}</span></div>`)
+    }
+    if (start && end) {
+      const startFmt = new Date(start).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+      const endFmt = new Date(end).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">🕐 Horário</span><span>${esc(startFmt)} – ${esc(endFmt)}</span></div>`)
+    }
+    if (dur !== undefined) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">⏱ Duração</span><span>${dur < 1 ? '< 1 min' : `${dur} min`}</span></div>`)
+    }
+    if (attendees.length > 0) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">👥 Participantes</span><span>${esc(attendees.join(', '))}</span></div>`)
+    }
+    if (location) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">📍 Local</span><span>${esc(location)}</span></div>`)
+    }
+    if (description) {
+      parts.push(`<div class="slack-circuit-row slack-circuit-preview"><span class="slack-circuit-label">📝 Descrição</span><blockquote class="meta-comment-block">${esc(description)}</blockquote></div>`)
+    }
+    if (meetLink) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">🎥 Meet</span><span><a href="${esc(meetLink)}" target="_blank" rel="noopener">${esc(meetLink)}</a></span></div>`)
+    }
+    if (htmlLink) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">🔗 Link</span><span><a href="${esc(htmlLink)}" target="_blank" rel="noopener">Abrir no Google Calendar</a></span></div>`)
+    }
+    parts.push(`</div>`)
+    return `<div class="metadata">${parts.join('')}</div>`
+  }
+
+  if (a.type === 'MEET_CALL') {
+    const dur = m.durationMinutes as number | undefined
+    const participants = (m.participants as string[] | undefined) ?? []
+    const meetingUri = m.meetingUri as string | undefined
+    const transcript = m.transcript as Array<{ participantName: string; text: string; startTime: string }> | undefined
+
+    parts.push(`<div class="slack-circuit-card">`)
+    if (dur !== undefined) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">⏱ Duração</span><span>${dur < 1 ? '< 1 min' : `${dur} min`}</span></div>`)
+    }
+    if (participants.length > 0) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">👥 Participantes</span><span>${esc(participants.join(', '))}</span></div>`)
+    }
+    if (meetingUri) {
+      parts.push(`<div class="slack-circuit-row"><span class="slack-circuit-label">🔗 Link</span><span><a href="${esc(meetingUri)}" target="_blank" rel="noopener">${esc(meetingUri)}</a></span></div>`)
+    }
+    if (transcript && transcript.length > 0) {
+      const rows = transcript.slice(0, 30).map((e) => {
+        const time = e.startTime ? new Date(e.startTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }) : ''
+        return `<div class="circuit-msg"><span class="circuit-msg-author">${esc(e.participantName)}</span><span class="circuit-msg-time">${time}</span><span class="circuit-msg-text">${esc(e.text)}</span></div>`
+      }).join('')
+      const moreCount = transcript.length > 30 ? transcript.length - 30 : 0
+      parts.push(`<div class="slack-circuit-row slack-circuit-preview"><span class="slack-circuit-label">📝 Transcrição</span><div class="circuit-transcript">${rows}${moreCount > 0 ? `<div class="circuit-msg"><span class="circuit-msg-text meta-tag">+${moreCount} entrada(s) omitida(s)</span></div>` : ''}</div></div>`)
+    }
+    parts.push(`</div>`)
+    return `<div class="metadata">${parts.join('')}</div>`
+  }
+
+  return ''
+}
+
+function renderGoogleActivities(activities: GoogleActivity[]): string {
+  if (activities.length === 0) return '<p class="empty-state">Nenhuma atividade do Google neste dia.</p>'
+
+  const calEvents = activities.filter((a) => a.type === 'CALENDAR_EVENT')
+  const meetCalls = activities.filter((a) => a.type === 'MEET_CALL')
+
+  const statsBar = `<div class="gh-day-stats">
+    ${calEvents.length > 0 ? `<span>📅 ${calEvents.length} evento${calEvents.length !== 1 ? 's' : ''} no Calendar</span>` : ''}
+    ${meetCalls.length > 0 ? `<span>📹 ${meetCalls.length} chamada${meetCalls.length !== 1 ? 's' : ''} no Meet</span>` : ''}
+  </div>`
+
+  const items = activities.map((a) => `
+    <div class="activity-item activity-google">
+      <div class="activity-header">
+        <span class="activity-type">${esc(googleTypeLabel(a.type))}</span>
+        <span class="activity-key">${esc(a.title)}</span>
+        <span class="activity-time">${formatDateTime(a.createdAt)}</span>
+      </div>
+      ${renderGoogleMeta(a)}
+    </div>
+  `).join('')
+
+  return statsBar + items
+}
+
 function renderDaySection(day: DailyReport, index: number, jiraBaseUrl?: string): string {
   const hasJira = day.jira.length > 0
   const hasGitHub = day.github.length > 0
   const hasSlack = day.slack.length > 0
-  const total = day.jira.length + day.github.length + day.slack.length
+  const hasGoogle = (day.google ?? []).length > 0
+  const total = day.jira.length + day.github.length + day.slack.length + (day.google ?? []).length
+
+  const firstActive = hasJira ? 'jira' : hasGitHub ? 'github' : hasSlack ? 'slack' : 'google'
 
   const tabs = [
-    hasJira ? `<button class="tab-btn active" data-tab="jira-${index}" onclick="switchTab(this, 'jira-${index}')">🔵 Jira <span class="tab-count">${day.jira.length}</span></button>` : '',
-    hasGitHub ? `<button class="tab-btn ${!hasJira ? 'active' : ''}" data-tab="github-${index}" onclick="switchTab(this, 'github-${index}')">⚫ GitHub <span class="tab-count">${day.github.length}</span></button>` : '',
-    hasSlack ? `<button class="tab-btn ${!hasJira && !hasGitHub ? 'active' : ''}" data-tab="slack-${index}" onclick="switchTab(this, 'slack-${index}')">🟢 Slack <span class="tab-count">${day.slack.length}</span></button>` : '',
+    hasJira ? `<button class="tab-btn ${firstActive === 'jira' ? 'active' : ''}" data-tab="jira-${index}" onclick="switchTab(this, 'jira-${index}')">🔵 Jira <span class="tab-count">${day.jira.length}</span></button>` : '',
+    hasGitHub ? `<button class="tab-btn ${firstActive === 'github' ? 'active' : ''}" data-tab="github-${index}" onclick="switchTab(this, 'github-${index}')">⚫ GitHub <span class="tab-count">${day.github.length}</span></button>` : '',
+    hasSlack ? `<button class="tab-btn ${firstActive === 'slack' ? 'active' : ''}" data-tab="slack-${index}" onclick="switchTab(this, 'slack-${index}')">🟢 Slack <span class="tab-count">${day.slack.length}</span></button>` : '',
+    hasGoogle ? `<button class="tab-btn ${firstActive === 'google' ? 'active' : ''}" data-tab="google-${index}" onclick="switchTab(this, 'google-${index}')">🗓️ Google <span class="tab-count">${(day.google ?? []).length}</span></button>` : '',
   ].filter(Boolean).join('')
-
-  const firstActive = hasJira ? 'jira' : hasGitHub ? 'github' : 'slack'
 
   return `
     <section class="day-section" id="day-${index}" data-date="${day.date}">
-      <div class="day-header">
-        <h2 class="day-title">📅 ${formatDate(day.date)}</h2>
+      <div class="day-header" onclick="toggleDay(${index})" role="button" aria-expanded="true">
+        <div class="day-header-left">
+          <span class="day-chevron" id="chevron-${index}">▼</span>
+          <h2 class="day-title">📅 ${formatDate(day.date)}</h2>
+        </div>
         <span class="day-activity-count">${total} atividade${total !== 1 ? 's' : ''}</span>
       </div>
 
-      ${total === 0 ? '<p class="empty-state day-empty">Nenhuma atividade registrada neste dia.</p>' : `
-        <div class="tab-bar">${tabs}</div>
+      <div class="day-content" id="day-content-${index}">
+        ${total === 0 ? '<p class="empty-state day-empty">Nenhuma atividade registrada neste dia.</p>' : `
+          <div class="tab-bar">${tabs}</div>
 
-        ${hasJira ? `
-          <div class="tab-panel ${firstActive === 'jira' ? 'active' : ''}" id="jira-${index}">
-            <div class="activities-list">
-              ${renderJiraActivities(day.jira, jiraBaseUrl)}
+          ${hasJira ? `
+            <div class="tab-panel ${firstActive === 'jira' ? 'active' : ''}" id="jira-${index}">
+              <div class="activities-list">
+                ${renderJiraActivities(day.jira, jiraBaseUrl)}
+              </div>
             </div>
+          ` : ''}
+
+          ${hasGitHub ? `
+            <div class="tab-panel ${firstActive === 'github' ? 'active' : ''}" id="github-${index}">
+              <div class="activities-list">
+                ${renderGitHubActivities(day.github)}
+              </div>
+            </div>
+          ` : ''}
+
+          ${hasSlack ? `
+            <div class="tab-panel ${firstActive === 'slack' ? 'active' : ''}" id="slack-${index}">
+              <div class="activities-list">
+                ${renderSlackActivities(day.slack)}
+              </div>
+            </div>
+          ` : ''}
+
+          ${hasGoogle ? `
+            <div class="tab-panel ${firstActive === 'google' ? 'active' : ''}" id="google-${index}">
+              <div class="activities-list">
+                ${renderGoogleActivities(day.google ?? [])}
+              </div>
+            </div>
+          ` : ''}
+        `}
+
+        ${day.aiSummary ? `
+          <div class="ai-summary-card" data-summary="${esc(day.aiSummary)}">
+            <div class="ai-summary-header">
+              <span>🤖 Resumo executivo do dia</span>
+              <button class="copy-summary-btn" onclick="event.stopPropagation();copySummary(this)" title="Copiar resumo">📋 Copiar</button>
+            </div>
+            <p class="ai-summary-text">${esc(day.aiSummary)}</p>
           </div>
         ` : ''}
-
-        ${hasGitHub ? `
-          <div class="tab-panel ${firstActive === 'github' ? 'active' : ''}" id="github-${index}">
-            <div class="activities-list">
-              ${renderGitHubActivities(day.github)}
-            </div>
-          </div>
-        ` : ''}
-
-        ${hasSlack ? `
-          <div class="tab-panel ${firstActive === 'slack' ? 'active' : ''}" id="slack-${index}">
-            <div class="activities-list">
-              ${renderSlackActivities(day.slack)}
-            </div>
-          </div>
-        ` : ''}
-      `}
-
-      ${day.aiSummary ? `
-        <div class="ai-summary-card">
-          <div class="ai-summary-header">🤖 Resumo executivo do dia</div>
-          <p class="ai-summary-text">${esc(day.aiSummary)}</p>
-        </div>
-      ` : ''}
+      </div>
     </section>
   `
 }
@@ -507,8 +643,8 @@ export function buildHtmlReport(output: ReportOutput): string {
 
   const dayNavItems = days
     .map((d, i) => {
-      const total = d.jira.length + d.github.length + d.slack.length
-      return `<button class="day-pill" onclick="scrollToDay(${i})">${formatDate(d.date)}<span class="pill-count">${total}</span></button>`
+      const total = d.jira.length + d.github.length + d.slack.length + (d.google ?? []).length
+      return `<button class="day-pill" data-date="${d.date}" onclick="scrollToDay(${i})">${formatDate(d.date)}<span class="pill-count">${total}</span></button>`
     })
     .join('')
 
@@ -535,6 +671,7 @@ export function buildHtmlReport(output: ReportOutput): string {
       --jira: #3b82f6;
       --github: #9ca3af;
       --slack: #22c55e;
+      --google: #10b981;
       --ai: #8b5cf6;
       --radius: 12px;
     }
@@ -600,6 +737,7 @@ export function buildHtmlReport(output: ReportOutput): string {
       flex-shrink: 0;
     }
     .day-pill:hover { background: var(--surface2); border-color: var(--jira); }
+    .day-pill.active-pill { background: rgba(59,130,246,0.15); border-color: var(--jira); color: #93c5fd; }
     .pill-count {
       background: var(--border);
       border-radius: 999px;
@@ -651,11 +789,25 @@ export function buildHtmlReport(output: ReportOutput): string {
       margin-bottom: 1rem;
       padding-bottom: 0.75rem;
       border-bottom: 2px solid var(--border);
+      cursor: pointer;
+      user-select: none;
     }
+    .day-header:hover .day-title { color: #93c5fd; }
+    .day-header-left { display: flex; align-items: center; gap: 0.5rem; }
+    .day-chevron {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      transition: transform 0.2s;
+      width: 1rem;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .day-content.collapsed { display: none; }
     .day-title {
       font-size: 1.1rem;
       font-weight: 700;
       color: var(--text);
+      transition: color 0.15s;
     }
     .day-activity-count {
       font-size: 0.75rem;
@@ -713,6 +865,7 @@ export function buildHtmlReport(output: ReportOutput): string {
     .activity-jira { border-left-color: var(--jira); }
     .activity-github { border-left-color: var(--github); }
     .activity-slack { border-left-color: var(--slack); }
+    .activity-google { border-left-color: var(--google); }
 
     .activity-header {
       display: flex;
@@ -915,6 +1068,21 @@ export function buildHtmlReport(output: ReportOutput): string {
     .circuit-msg-text { word-break: break-word; color: var(--text); }
 
     /* ── AI SUMMARY ── */
+    .copy-summary-btn {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: var(--text-muted);
+      padding: 0.25rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .copy-summary-btn:hover { background: rgba(255,255,255,0.12); color: var(--text); }
+    .copy-summary-btn.copied { color: #4ade80; border-color: rgba(74,222,128,0.3); }
     .ai-summary-card {
       margin-top: 1rem;
       padding: 1rem 1.25rem;
@@ -923,6 +1091,9 @@ export function buildHtmlReport(output: ReportOutput): string {
       border: 1px solid rgba(139, 92, 246, 0.3);
     }
     .ai-summary-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       font-size: 0.82rem;
       font-weight: 700;
       color: #a78bfa;
@@ -994,7 +1165,7 @@ export function buildHtmlReport(output: ReportOutput): string {
 
 <script>
   function switchTab(btn, panelId) {
-    const section = btn.closest('.day-section');
+    var section = btn.closest('.day-section');
     section.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
     section.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
     btn.classList.add('active');
@@ -1010,6 +1181,51 @@ export function buildHtmlReport(output: ReportOutput): string {
       window.scrollTo({ top: top, behavior: 'smooth' });
     }
   }
+
+  function toggleDay(index) {
+    var content = document.getElementById('day-content-' + index);
+    var chevron = document.getElementById('chevron-' + index);
+    if (!content) return;
+    var collapsed = content.classList.toggle('collapsed');
+    if (chevron) chevron.textContent = collapsed ? '▶' : '▼';
+    var section = document.getElementById('day-' + index);
+    if (section) section.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  }
+
+  function copySummary(btn) {
+    var card = btn.closest('.ai-summary-card');
+    var text = card ? (card.getAttribute('data-summary') || '') : '';
+    navigator.clipboard.writeText(text).then(function() {
+      btn.textContent = '✅ Copiado';
+      btn.classList.add('copied');
+      setTimeout(function() {
+        btn.textContent = '📋 Copiar';
+        btn.classList.remove('copied');
+      }, 2200);
+    }).catch(function() {
+      btn.textContent = '❌';
+      setTimeout(function() { btn.textContent = '📋 Copiar'; }, 1500);
+    });
+  }
+
+  (function() {
+    var pills = document.querySelectorAll('.day-pill');
+    var sections = document.querySelectorAll('.day-section');
+    if (!sections.length || !pills.length) return;
+
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          var date = entry.target.getAttribute('data-date');
+          pills.forEach(function(p) { p.classList.remove('active-pill'); });
+          var match = document.querySelector('.day-pill[data-date="' + date + '"]');
+          if (match) match.classList.add('active-pill');
+        }
+      });
+    }, { threshold: 0.15, rootMargin: '-80px 0px -55% 0px' });
+
+    sections.forEach(function(s) { observer.observe(s); });
+  })();
 </script>
 </body>
 </html>`
@@ -1026,15 +1242,18 @@ export function buildJsonAttachments(
   const jiraByDay: Record<string, JiraActivity[]> = {}
   const githubByDay: Record<string, GitHubActivity[]> = {}
   const slackByDay: Record<string, SlackActivity[]> = {}
+  const googleByDay: Record<string, GoogleActivity[]> = {}
 
   let hasJira = false
   let hasGitHub = false
   let hasSlack = false
+  let hasGoogle = false
 
   for (const day of output.days) {
     if (day.jira.length > 0) { jiraByDay[day.date] = day.jira; hasJira = true }
     if (day.github.length > 0) { githubByDay[day.date] = day.github; hasGitHub = true }
     if (day.slack.length > 0) { slackByDay[day.date] = day.slack; hasSlack = true }
+    if ((day.google ?? []).length > 0) { googleByDay[day.date] = day.google; hasGoogle = true }
   }
 
   if (hasJira) {
@@ -1055,6 +1274,13 @@ export function buildJsonAttachments(
     attachments.push({
       filename: `slack-${output.period.startDate}-${output.period.endDate}.json`,
       content: JSON.stringify(slackByDay, null, 2),
+    })
+  }
+
+  if (hasGoogle) {
+    attachments.push({
+      filename: `google-${output.period.startDate}-${output.period.endDate}.json`,
+      content: JSON.stringify(googleByDay, null, 2),
     })
   }
 

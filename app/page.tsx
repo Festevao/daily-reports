@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { ArrowRight, Loader2, Mail, Search } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { ArrowRight, Loader2, Mail, Search, LogIn, LogOut, CheckCircle2 } from 'lucide-react'
 import { InputField } from '@/components/InputField'
 import { SelectionsModal } from '@/components/SelectionsModal'
 import { JobStatusModal } from '@/components/JobStatusModal'
@@ -17,6 +17,7 @@ interface FormState {
   githubToken: string
   slackToken: string
   openaiToken: string
+  openaiInstructions: string
 }
 
 interface FormErrors {
@@ -33,6 +34,14 @@ interface FormErrors {
   slackGroup?: string
   openaiGroup?: string
 }
+
+interface GoogleTokens {
+  accessToken: string
+  refreshToken: string
+  email: string
+}
+
+type EasterEggState = 'idle' | 'fuse' | 'explosion' | 'revealed'
 
 const JIRA_LOGO = (
   <svg viewBox="0 0 32 32" className="w-5 h-5" fill="none">
@@ -63,6 +72,15 @@ const OPENAI_LOGO = (
   </svg>
 )
 
+const GOOGLE_LOGO = (
+  <svg viewBox="0 0 48 48" className="w-5 h-5" fill="none">
+    <path d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107" />
+    <path d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00" />
+    <path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50" />
+    <path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2" />
+  </svg>
+)
+
 const STORAGE_KEY = 'daily-reports-config'
 const ENABLED_KEY = 'daily-reports-enabled'
 
@@ -75,9 +93,10 @@ const defaultForm: FormState = {
   githubToken: '',
   slackToken: '',
   openaiToken: '',
+  openaiInstructions: '',
 }
 
-const defaultEnabled = { jira: true, github: true, slack: true, openai: true }
+const defaultEnabled = { jira: true, github: true, slack: true, openai: true, google: false }
 
 function loadFromStorage(): FormState {
   if (typeof window === 'undefined') return defaultForm
@@ -110,6 +129,9 @@ export default function SetupPage() {
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false)
   const [helpTopic, setHelpTopic] = useState<HelpTopic | null>(null)
+  const [googleTokens, setGoogleTokens] = useState<GoogleTokens | null>(null)
+  const [googleAuthLoading, setGoogleAuthLoading] = useState(false)
+  const [easterEgg, setEasterEgg] = useState<EasterEggState>('idle')
 
   const addToast = (message: string) => {
     const id = crypto.randomUUID()
@@ -139,10 +161,58 @@ export default function SetupPage() {
     })
   }
 
+  const fetchGoogleStatus = useCallback(() => {
+    fetch('/api/auth/google/status')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.connected) {
+          setGoogleTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken, email: data.email })
+        } else {
+          setGoogleTokens(null)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const handleGoogleLogin = () => {
+    setGoogleAuthLoading(true)
+    const popup = window.open('/api/auth/google', 'google-auth', 'width=500,height=620,left=200,top=100')
+
+    const onMessage = (evt: MessageEvent) => {
+      if (evt.data !== 'google-auth-success') return
+      window.removeEventListener('message', onMessage)
+      fetch('/api/auth/google/status')
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.connected) {
+            setGoogleTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken, email: data.email })
+          }
+        })
+        .catch(() => {})
+        .finally(() => setGoogleAuthLoading(false))
+    }
+
+    window.addEventListener('message', onMessage)
+
+    const interval = setInterval(() => {
+      if (popup?.closed) {
+        clearInterval(interval)
+        window.removeEventListener('message', onMessage)
+        setGoogleAuthLoading(false)
+      }
+    }, 500)
+  }
+
+  const handleGoogleDisconnect = () => {
+    fetch('/api/auth/google/disconnect', { method: 'DELETE' }).catch(() => {})
+    setGoogleTokens(null)
+  }
+
   useEffect(() => {
     setForm(loadFromStorage())
     setEnabled(loadEnabledFromStorage())
-  }, [])
+    fetchGoogleStatus()
+  }, [fetchGoogleStatus])
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(form))
@@ -153,6 +223,13 @@ export default function SetupPage() {
     if (errors[field as keyof FormErrors]) {
       setErrors((prev) => ({ ...prev, [field]: undefined }))
     }
+  }
+
+  const handleEasterEgg = () => {
+    if (easterEgg !== 'idle') return
+    setEasterEgg('fuse')
+    setTimeout(() => setEasterEgg('explosion'), 900)
+    setTimeout(() => setEasterEgg('revealed'), 1400)
   }
 
   const handleSubmit = async () => {
@@ -173,6 +250,17 @@ export default function SetupPage() {
     if (enabled.github && !form.githubToken.trim()) newErrors.githubToken = 'Informe o token do GitHub'
     if (enabled.slack && !form.slackToken.trim()) newErrors.slackToken = 'Informe o token do Slack'
     if (enabled.openai && !form.openaiToken.trim()) newErrors.openaiToken = 'Informe o token da OpenAI'
+
+    const hasDataSource = enabled.jira || enabled.github || enabled.slack || enabled.google
+    if (!hasDataSource) {
+      addToast('Habilite pelo menos uma integração de dados (Jira, GitHub, Slack ou Google) para continuar.')
+      return
+    }
+
+    if (enabled.google && !googleTokens) {
+      addToast('O Google está habilitado mas você ainda não fez login. Clique em "Entrar com Google" antes de continuar.')
+      return
+    }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors)
@@ -235,6 +323,18 @@ export default function SetupPage() {
         }
       })
 
+      const allDataSourcesFailed =
+        (!enabled.jira || !!validationErrors.jiraGroup) &&
+        (!enabled.github || !!validationErrors.githubGroup) &&
+        (!enabled.slack || !!validationErrors.slackGroup) &&
+        (!enabled.google || !googleTokens)
+
+      if (allDataSourcesFailed && (enabled.jira || enabled.github || enabled.slack)) {
+        addToast('Nenhuma integração de dados foi validada com sucesso. Verifique as credenciais.')
+        setErrors(validationErrors)
+        return
+      }
+
       if (Object.keys(validationErrors).length > 0) {
         setErrors(validationErrors)
         return
@@ -250,6 +350,51 @@ export default function SetupPage() {
 
   return (
     <main className="min-h-screen w-full flex flex-col items-center justify-center px-3 sm:px-4 py-8 sm:py-12">
+      <style>{`
+        @keyframes bombWobble {
+          0%,100% { transform: rotate(-8deg) scale(1.1); }
+          25% { transform: rotate(8deg) scale(1.15); }
+          50% { transform: rotate(-12deg) scale(1.2); }
+          75% { transform: rotate(12deg) scale(1.1); }
+        }
+        @keyframes explode {
+          0% { transform: scale(0.5); opacity: 0.5; }
+          40% { transform: scale(2.2); opacity: 1; }
+          70% { transform: scale(1.6); opacity: 1; }
+          100% { transform: scale(1.8); opacity: 1; }
+        }
+        @keyframes revealText {
+          0% { opacity: 0; transform: translateY(30px) scale(0.85); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .egg-bomb { animation: bombWobble 0.25s ease-in-out infinite; }
+        .egg-explode { animation: explode 0.55s cubic-bezier(.22,1,.36,1) forwards; }
+        .egg-reveal { animation: revealText 0.6s cubic-bezier(.22,1,.36,1) forwards; }
+      `}</style>
+
+      {easterEgg !== 'idle' && (
+        <div
+          onClick={() => setEasterEgg('idle')}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm cursor-pointer"
+        >
+          {easterEgg === 'fuse' && (
+            <span className="egg-bomb select-none" style={{ fontSize: '7rem', lineHeight: 1 }}>💣</span>
+          )}
+          {easterEgg === 'explosion' && (
+            <span className="egg-explode select-none" style={{ fontSize: '7rem', lineHeight: 1 }}>💥</span>
+          )}
+          {easterEgg === 'revealed' && (
+            <div className="egg-reveal text-center select-none px-6">
+              <div style={{ fontSize: '5rem', lineHeight: 1 }} className="mb-5">💥</div>
+              <p className="text-2xl font-semibold text-slate-300 mb-1">Criado por</p>
+              <p className="text-4xl font-extrabold text-yellow-400 tracking-tight">Felipi Trindade</p>
+              <p className="text-xl font-bold text-orange-400 mt-1">(Bomber) 💣</p>
+              <p className="text-xs text-slate-600 mt-8">Clique em qualquer lugar para fechar</p>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="w-full max-w-2xl">
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-linear-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/25 mb-4">
@@ -257,7 +402,13 @@ export default function SetupPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">Daily Reports</h1>
+          <h1
+            className="text-3xl font-bold text-white tracking-tight cursor-pointer select-none hover:text-yellow-300 transition-colors duration-150"
+            onClick={handleEasterEgg}
+            title="Daily Reports"
+          >
+            Daily Reports
+          </h1>
           <p className="text-slate-400 mt-2 text-sm leading-relaxed max-w-sm mx-auto">
             Configure suas integrações para gerar relatórios diários automaticamente
           </p>
@@ -365,25 +516,85 @@ export default function SetupPage() {
           </IntegrationCard>
 
           <IntegrationCard
+            logo={GOOGLE_LOGO}
+            title="Google"
+            description="Importa eventos do Calendar e chamadas do Meet"
+            accentColor="amber"
+            enabled={enabled.google}
+            onToggle={() => toggleIntegration('google')}
+            hasGroupError={false}
+          >
+            {googleTokens ? (
+              <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="text-sm text-emerald-300 font-medium">{googleTokens.email}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleGoogleDisconnect}
+                  className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-red-400 transition-colors"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  Desconectar
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleGoogleLogin}
+                disabled={googleAuthLoading}
+                className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 text-sm font-medium hover:bg-amber-500/20 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {googleAuthLoading ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Aguardando autorização...</>
+                ) : (
+                  <><LogIn className="w-4 h-4" /> Fazer login com Google</>
+                )}
+              </button>
+            )}
+          </IntegrationCard>
+
+          <IntegrationCard
             logo={OPENAI_LOGO}
             title="OpenAI"
-            description="Gera o relatório com inteligência artificial"
+            description="Gera resumos executivos com inteligência artificial"
             accentColor="violet"
             enabled={enabled.openai}
             onToggle={() => toggleIntegration('openai')}
             hasGroupError={!!errors.openaiGroup}
             groupError={errors.openaiGroup}
           >
-            <InputField
-              id="openai-token"
-              label="API Key"
-              type="password"
-              placeholder="sk-..."
-              value={form.openaiToken}
-              onChange={setField('openaiToken')}
-              onHelpClick={() => setHelpTopic('openai-token')}
-              error={errors.openaiToken}
-            />
+            <div className="flex flex-col gap-3">
+              <InputField
+                id="openai-token"
+                label="API Key"
+                type="password"
+                placeholder="sk-..."
+                value={form.openaiToken}
+                onChange={setField('openaiToken')}
+                onHelpClick={() => setHelpTopic('openai-token')}
+                error={errors.openaiToken}
+              />
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="openai-instructions" className="text-xs font-medium text-slate-400">
+                    Instruções para o resumo executivo
+                  </label>
+                  <span className="text-xs text-slate-500">{form.openaiInstructions.length}/800</span>
+                </div>
+                <textarea
+                  id="openai-instructions"
+                  rows={3}
+                  maxLength={800}
+                  placeholder="Ex: Foque nas tarefas técnicas e mencione os PRs revisados. Use tom formal. Destaque bloqueios e dependências entre times."
+                  value={form.openaiInstructions}
+                  onChange={(e) => setField('openaiInstructions')(e.target.value)}
+                  className="w-full rounded-lg border border-slate-600 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 outline-none transition-all focus:ring-2 focus:ring-violet-500/40 focus:border-violet-500 hover:border-slate-500 resize-none placeholder:text-slate-600"
+                />
+                <p className="text-xs text-slate-600">Opcional. Guia a IA sobre tom, foco e formato dos resumos diários.</p>
+              </div>
+            </div>
           </IntegrationCard>
 
           <div className={[
@@ -444,6 +655,7 @@ export default function SetupPage() {
         onClose={() => setIsModalOpen(false)}
         enabledIntegrations={enabled}
         reportEmail={form.reportEmail}
+        googleTokens={googleTokens}
         credentials={{
           jiraBaseUrl: form.jiraBaseUrl,
           jiraEmail: form.jiraEmail,
@@ -452,6 +664,7 @@ export default function SetupPage() {
           githubToken: form.githubToken,
           slackToken: form.slackToken,
           openaiToken: form.openaiToken,
+          openaiInstructions: form.openaiInstructions,
         }}
       />
       <JobStatusModal isOpen={isStatusModalOpen} onClose={() => setIsStatusModalOpen(false)} />
@@ -483,6 +696,12 @@ const accentMap = {
   violet: {
     border: 'border-violet-500/40',
     icon: 'bg-violet-500/20 border-violet-500/30',
+    errorBorder: 'border-red-500/60',
+    errorBg: 'bg-red-500/5',
+  },
+  amber: {
+    border: 'border-amber-500/40',
+    icon: 'bg-amber-500/20 border-amber-500/30',
     errorBorder: 'border-red-500/60',
     errorBg: 'bg-red-500/5',
   },

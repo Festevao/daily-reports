@@ -1,8 +1,9 @@
 import { extractJiraActivities } from '../extractors/jira.extractor'
 import { extractGitHubActivities } from '../extractors/github.extractor'
 import { extractSlackActivities } from '../extractors/slack.extractor'
+import { extractGoogleActivities } from '../extractors/google.extractor'
 import { generateDaySummary } from '../extractors/openai.summarizer'
-import { DailyReport, GitHubActivity, SlackActivity, OpenAIUsage, ReportOutput } from '../types/report.types'
+import { DailyReport, GitHubActivity, SlackActivity, GoogleActivity, OpenAIUsage, ReportOutput } from '../types/report.types'
 import { ReportPayload } from '../email/template'
 import { step } from '../logger'
 
@@ -39,14 +40,19 @@ export async function buildReport(payload: ReportPayload): Promise<ReportOutput>
 
   if (integrations.jira) {
     step(`🔵 Jira — buscando atividades em ${integrations.jira.projectIds.length} projeto(s)...`)
-    jiraByDay = await extractJiraActivities(
-      integrations.jira.credentials,
-      integrations.jira.projectIds,
-      startDate,
-      endDate
-    )
-    const total = [...jiraByDay.values()].reduce((a, v) => a + v.length, 0)
-    step(`🔵 Jira — ${total} atividade(s) extraída(s)`)
+    try {
+      jiraByDay = await extractJiraActivities(
+        integrations.jira.credentials,
+        integrations.jira.projectIds,
+        startDate,
+        endDate
+      )
+      const total = [...jiraByDay.values()].reduce((a, v) => a + v.length, 0)
+      step(`🔵 Jira — ${total} atividade(s) extraída(s)`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      step(`❌ Jira — falha na extração, dados omitidos do relatório: ${msg}`)
+    }
   }
 
   let githubByDay: Map<string, GitHubActivity[]> = new Map()
@@ -76,6 +82,19 @@ export async function buildReport(payload: ReportPayload): Promise<ReportOutput>
     step(`🟢 Slack — ${total} atividade(s) extraída(s)`)
   }
 
+  let googleByDay: Map<string, GoogleActivity[]> = new Map()
+  if (integrations.google) {
+    step(`📅 Google — extraindo Calendar e Meet...`)
+    googleByDay = await extractGoogleActivities(
+      integrations.google.accessToken,
+      integrations.google.refreshToken,
+      startDate,
+      endDate
+    )
+    const total = [...googleByDay.values()].reduce((a, v) => a + v.length, 0)
+    step(`📅 Google — ${total} atividade(s) extraída(s)`)
+  }
+
   const hasOpenAI = !!integrations.openai?.apiKey
   if (hasOpenAI) {
     step(`🤖 OpenAI — resumos diários ativados (gpt-4o-mini)`)
@@ -88,15 +107,15 @@ export async function buildReport(payload: ReportPayload): Promise<ReportOutput>
   for (const date of days) {
     const jira = jiraByDay.get(date) ?? []
     const github = githubByDay.get(date) ?? []
-
     const slack = slackByDay.get(date) ?? []
+    const google = googleByDay.get(date) ?? []
 
     let aiSummary: string | undefined
 
-    const hasData = jira.length > 0 || github.length > 0 || slack.length > 0
+    const hasData = jira.length > 0 || github.length > 0 || slack.length > 0 || google.length > 0
     if (hasOpenAI && hasData) {
       step(`🤖 gerando resumo IA para ${date}...`)
-      const result = await generateDaySummary(integrations.openai!.apiKey, { date, jira, github, slack })
+      const result = await generateDaySummary(integrations.openai!.apiKey, { date, jira, github, slack, google }, integrations.openai!.customInstructions)
       if (result) {
         aiSummary = result.summary
         totalPromptTokens += result.promptTokens
@@ -105,7 +124,7 @@ export async function buildReport(payload: ReportPayload): Promise<ReportOutput>
       }
     }
 
-    dailyReports.push({ date, jira, github, slack, aiSummary })
+    dailyReports.push({ date, jira, github, slack, google, aiSummary })
   }
 
   dailyReports.sort((a, b) => a.date.localeCompare(b.date))

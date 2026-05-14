@@ -97,11 +97,22 @@ export interface SlackActivity {
   metadata?: Record<string, unknown>
 }
 
+export type GoogleActivityType = 'CALENDAR_EVENT' | 'MEET_CALL'
+
+export interface GoogleActivity {
+  type: GoogleActivityType
+  title: string
+  author: string
+  createdAt: string
+  metadata?: Record<string, unknown>
+}
+
 export interface DailyReport {
   date: string
   jira: JiraActivity[]
   github: GitHubActivity[]
   slack: SlackActivity[]
+  google: GoogleActivity[]
   aiSummary?: string
 }
 

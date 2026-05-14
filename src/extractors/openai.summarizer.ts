@@ -1,63 +1,12 @@
 import axios from 'axios'
-import { JiraActivity, GitHubActivity, SlackActivity } from '../types/report.types'
+import { JiraActivity, GitHubActivity, SlackActivity, GoogleActivity } from '../types/report.types'
 
 interface DayData {
   date: string
   jira: JiraActivity[]
   github: GitHubActivity[]
   slack: SlackActivity[]
-}
-
-function buildGitHubStats(activities: GitHubActivity[]): Record<string, unknown> {
-  const commits = activities.filter((a) => a.type === 'COMMIT')
-  const meta = (a: GitHubActivity) => a.metadata as Record<string, unknown> | undefined
-
-  const totalInsertions = commits.reduce((n, a) => n + ((meta(a)?.insertions as number) ?? 0), 0)
-  const totalDeletions = commits.reduce((n, a) => n + ((meta(a)?.deletions as number) ?? 0), 0)
-  const uniqueFiles = new Set(
-    commits.flatMap((a) => ((meta(a)?.files as Array<{ filename: string }>) ?? []).map((f) => f.filename))
-  )
-
-  return {
-    commits: commits.length,
-    filesChanged: uniqueFiles.size,
-    insertions: totalInsertions,
-    deletions: totalDeletions,
-    reviews: activities.filter((a) => ['PR_APPROVED', 'PR_CHANGES_REQUESTED', 'PR_REVIEWED'].includes(a.type)).length,
-    prsOpened: activities.filter((a) => ['PR_OPENED', 'PR_DRAFT_CREATED'].includes(a.type)).length,
-    prsMerged: activities.filter((a) => a.type === 'PR_MERGED').length,
-    comments: activities.filter((a) => ['REVIEW_COMMENT', 'ISSUE_COMMENT'].includes(a.type)).length,
-  }
-}
-
-function buildSlackStats(activities: SlackActivity[]): Record<string, unknown> {
-  const circuits = activities.filter((a) => a.type === 'DISCUSSION_CIRCUIT')
-  const totalCircuitMinutes = circuits.reduce(
-    (n, a) => n + (((a.metadata as Record<string, unknown>)?.durationMinutes as number) ?? 0),
-    0
-  )
-  return {
-    messagesSent: activities.filter((a) => a.type === 'MESSAGE_SENT').length,
-    threadsStarted: activities.filter((a) => a.type === 'THREAD_STARTED').length,
-    threadReplies: activities.filter((a) => a.type === 'THREAD_REPLY').length,
-    dmsSent: activities.filter((a) => a.type === 'DM_SENT').length,
-    dmsReceived: activities.filter((a) => a.type === 'DM_RECEIVED').length,
-    reactionsAdded: activities.filter((a) => a.type === 'REACTION_ADDED').length,
-    reactionsReceived: activities.filter((a) => a.type === 'REACTION_RECEIVED').length,
-    calls: activities.filter((a) => a.type === 'CALL_SUMMARY').length,
-    discussionCircuits: circuits.length,
-    totalDiscussionMinutes: totalCircuitMinutes,
-    circuitTopics: circuits.map((c) => {
-      const m = c.metadata as Record<string, unknown> | undefined
-      return {
-        channel: c.channelName ?? c.channel,
-        durationMinutes: m?.durationMinutes,
-        participants: m?.participants,
-        firstMessage: (m?.firstMessage as string | undefined)?.slice(0, 120),
-        aiSummary: (m?.aiSummary as string | undefined)?.slice(0, 200),
-      }
-    }),
-  }
+  google?: GoogleActivity[]
 }
 
 export interface SummaryResult {
@@ -66,89 +15,224 @@ export interface SummaryResult {
   completionTokens: number
 }
 
-function truncateComments(activities: JiraActivity[]): JiraActivity[] {
-  return activities.map((a) => {
-    if (!a.metadata?.comment) return a
-    return {
-      ...a,
-      metadata: {
-        ...a.metadata,
-        comment: String(a.metadata.comment).slice(0, 200),
-      },
+function fmt(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })
+  } catch {
+    return iso.slice(11, 16)
+  }
+}
+
+function buildJiraText(activities: JiraActivity[]): string {
+  if (activities.length === 0) return ''
+  const lines = activities.map((a) => {
+    const m = a.metadata as Record<string, unknown> | undefined
+    const key = a.issueKey
+    const title = a.issueSummary ? ` "${a.issueSummary}"` : ''
+    const time = fmt(a.createdAt)
+    const comment = (m?.comment as string | undefined)?.slice(0, 200)
+    const from = m?.from as string | undefined
+    const to = m?.to as string | undefined
+
+    switch (a.type) {
+      case 'STATUS_CHANGED':
+        return `  [${time}] ${key}${title} — status alterado: "${from || '?'}" → "${to || '?'}"`
+      case 'ASSIGNEE_CHANGED':
+        return `  [${time}] ${key}${title} — responsável: "${from || '?'}" → "${to || '?'}"`
+      case 'COMMENT_ADDED':
+        return `  [${time}] ${key}${title} — comentário adicionado: "${comment || ''}"`
+      case 'COMMENT_EDITED':
+        return `  [${time}] ${key}${title} — comentário editado: "${comment || ''}"`
+      case 'PRIORITY_CHANGED':
+        return `  [${time}] ${key}${title} — prioridade: "${from || '?'}" → "${to || '?'}"`
+      case 'ISSUE_CREATED':
+        return `  [${time}] ${key}${title} — issue criada`
+      case 'ISSUE_RESOLVED':
+        return `  [${time}] ${key}${title} — issue resolvida`
+      case 'WORKLOG_ADDED':
+        return `  [${time}] ${key}${title} — tempo registrado: ${m?.timeSpent || ''}`
+      case 'SPRINT_CHANGED':
+      case 'SPRINT_ADDED':
+        return `  [${time}] ${key}${title} — sprint: "${from || '?'}" → "${to || '?'}"`
+      case 'DESCRIPTION_CHANGED':
+        return `  [${time}] ${key}${title} — descrição atualizada`
+      default:
+        return `  [${time}] ${key}${title} — ${a.type.toLowerCase().replace(/_/g, ' ')}${from && to ? `: "${from}" → "${to}"` : ''}`
     }
   })
+  return `=== JIRA (${activities.length} atividade${activities.length !== 1 ? 's' : ''}) ===\n${lines.join('\n')}`
+}
+
+function buildGitHubText(activities: GitHubActivity[]): string {
+  if (activities.length === 0) return ''
+  const lines = activities.map((a) => {
+    const m = a.metadata as Record<string, unknown> | undefined
+    const time = fmt(a.createdAt)
+    const title = a.title ? ` "${a.title}"` : ''
+
+    switch (a.type) {
+      case 'COMMIT': {
+        const ins = (m?.insertions as number) ?? 0
+        const del = (m?.deletions as number) ?? 0
+        const files = (m?.filesChanged as number) ?? 0
+        const branch = m?.branch ? ` [${m.branch}]` : ''
+        return `  [${time}] COMMIT em ${a.repo}${branch}: ${a.title || ''}  (+${ins}/-${del}, ${files} arquivo${files !== 1 ? 's' : ''})`
+      }
+      case 'PR_OPENED':
+        return `  [${time}] PR aberto em ${a.repo}:${title}`
+      case 'PR_MERGED':
+        return `  [${time}] PR mergeado em ${a.repo}:${title}`
+      case 'PR_CLOSED':
+        return `  [${time}] PR fechado sem merge em ${a.repo}:${title}`
+      case 'PR_APPROVED':
+        return `  [${time}] Aprovou PR em ${a.repo}:${title}`
+      case 'PR_CHANGES_REQUESTED':
+        return `  [${time}] Solicitou alterações em PR de ${a.repo}:${title}`
+      case 'PR_REVIEWED':
+        return `  [${time}] Revisou PR em ${a.repo}:${title}`
+      case 'PR_COMMENTED':
+      case 'REVIEW_COMMENT':
+      case 'ISSUE_COMMENT': {
+        const body = (m?.comment as string | undefined ?? m?.body as string | undefined)?.slice(0, 120)
+        return `  [${time}] Comentou em ${a.repo}:${title}${body ? ` — "${body}"` : ''}`
+      }
+      case 'BRANCH_CREATED':
+        return `  [${time}] Branch criada em ${a.repo}: ${m?.branch || ''}`
+      case 'RELEASE_PUBLISHED':
+        return `  [${time}] Release publicada em ${a.repo}: ${m?.tagName || ''}${m?.prerelease ? ' (pre-release)' : ''}`
+      default:
+        return `  [${time}] ${a.type.replace(/_/g, ' ')} em ${a.repo}${title}`
+    }
+  })
+
+  const commits = activities.filter((a) => a.type === 'COMMIT')
+  const totalIns = commits.reduce((n, a) => n + (((a.metadata as Record<string, unknown>)?.insertions as number) ?? 0), 0)
+  const totalDel = commits.reduce((n, a) => n + (((a.metadata as Record<string, unknown>)?.deletions as number) ?? 0), 0)
+  const stats = commits.length > 0 ? `  Totais do dia: ${commits.length} commit(s), +${totalIns}/-${totalDel} linhas\n` : ''
+
+  return `=== GITHUB (${activities.length} atividade${activities.length !== 1 ? 's' : ''}) ===\n${stats}${lines.join('\n')}`
+}
+
+function buildSlackText(activities: SlackActivity[]): string {
+  if (activities.length === 0) return ''
+  const lines: string[] = []
+
+  const calls = activities.filter((a) => a.type === 'CALL_SUMMARY')
+  const circuits = activities.filter((a) => a.type === 'DISCUSSION_CIRCUIT')
+  const msgs = activities.filter((a) => ['MESSAGE_SENT', 'THREAD_STARTED', 'THREAD_REPLY', 'MESSAGE_EDITED'].includes(a.type))
+  const dms = activities.filter((a) => ['DM_SENT', 'DM_RECEIVED'].includes(a.type))
+
+  for (const a of calls) {
+    const m = a.metadata as Record<string, unknown> | undefined
+    const dur = m?.durationMinutes as number | undefined
+    const participants = (m?.participants as string[] | undefined)?.join(', ')
+    const ch = a.channelName ?? a.channel
+    const time = fmt(a.createdAt)
+    const typeLabel = m?.callType === 'channel_huddle' ? 'Círculo em canal' : m?.callType === 'group_huddle' ? 'Círculo em grupo' : 'Círculo/Chamada'
+    lines.push(`  [${time}] ${typeLabel} em ${ch}${participants ? ` com ${participants}` : ''}${dur ? ` — ${dur} min` : ''}`)
+    const aiNotes = m?.aiNotes as string | undefined
+    if (aiNotes && aiNotes.length > 80) lines.push(`    Anotações IA: "${aiNotes.slice(0, 200)}"`)
+  }
+
+  for (const a of circuits) {
+    const m = a.metadata as Record<string, unknown> | undefined
+    const dur = m?.durationMinutes as number | undefined
+    const participants = (m?.participants as string[] | undefined)?.join(', ')
+    const ch = a.channelName ?? a.channel
+    const time = fmt(a.createdAt)
+    const aiSummary = m?.aiSummary as string | undefined
+    lines.push(`  [${time}] Circuito em ${ch}${participants ? ` com ${participants}` : ''}${dur ? ` — ${dur} min` : ''}`)
+    if (aiSummary) lines.push(`    Resumo: "${aiSummary.slice(0, 200)}"`)
+  }
+
+  if (msgs.length > 0) {
+    const byChannel = msgs.reduce<Record<string, number>>((acc, a) => {
+      const ch = a.channelName ?? a.channel
+      acc[ch] = (acc[ch] ?? 0) + 1
+      return acc
+    }, {})
+    const channelSummary = Object.entries(byChannel).map(([ch, n]) => `${n} em ${ch}`).join(', ')
+    lines.push(`  Mensagens em canais: ${channelSummary}`)
+  }
+
+  if (dms.length > 0) {
+    const sent = dms.filter((a) => a.type === 'DM_SENT').length
+    const recv = dms.filter((a) => a.type === 'DM_RECEIVED').length
+    lines.push(`  DMs: ${sent} enviada(s), ${recv} recebida(s)`)
+  }
+
+  return `=== SLACK (${activities.length} atividade${activities.length !== 1 ? 's' : ''}) ===\n${lines.join('\n')}`
+}
+
+function buildGoogleText(activities: GoogleActivity[]): string {
+  if (activities.length === 0) return ''
+  const lines = activities.map((a) => {
+    const m = a.metadata as Record<string, unknown> | undefined
+    const time = fmt(a.createdAt)
+    const dur = m?.durationMinutes as number | undefined
+
+    if (a.type === 'CALENDAR_EVENT') {
+      const attendees = (m?.attendees as string[] | undefined) ?? []
+      const location = m?.location as string | undefined
+      const description = (m?.description as string | undefined)?.slice(0, 100)
+      const response = m?.userResponseStatus as string | undefined
+      const responseLabel: Record<string, string> = { accepted: 'aceito', tentative: 'talvez', needsAction: 'sem resposta' }
+      return [
+        `  [${time}] ${a.title}${dur ? ` (${dur} min)` : ''}${attendees.length > 0 ? ` — com: ${attendees.slice(0, 5).join(', ')}` : ''}`,
+        location ? `    Local: ${location}` : '',
+        description ? `    Descrição: "${description}"` : '',
+        response && responseLabel[response] ? `    Resposta: ${responseLabel[response]}` : '',
+      ].filter(Boolean).join('\n')
+    }
+
+    const participants = (m?.participants as string[] | undefined) ?? []
+    return `  [${time}] Google Meet${dur ? ` (${dur} min)` : ''}${participants.length > 0 ? ` — participantes: ${participants.slice(0, 5).join(', ')}` : ''}`
+  })
+
+  return `=== GOOGLE CALENDAR & MEET (${activities.length} evento${activities.length !== 1 ? 's' : ''}) ===\n${lines.join('\n')}`
 }
 
 /**
- * Generates an executive AI summary for a single day using gpt-4o-mini.
- * Returns undefined on any error to avoid blocking the report.
+ * Generates a comprehensive first-person executive summary for a single day.
+ * Uses human-readable text context instead of raw JSON.
  */
 export async function generateDaySummary(
   apiKey: string,
-  dayData: DayData
+  dayData: DayData,
+  customInstructions?: string
 ): Promise<SummaryResult | undefined> {
   try {
-    const githubStats = buildGitHubStats(dayData.github)
-    const slackStats = buildSlackStats(dayData.slack)
-    const payload = {
-      date: dayData.date,
-      jira: truncateComments(dayData.jira),
-      githubStats,
-      github: dayData.github.map((a) => ({
-        type: a.type,
-        repo: a.repo,
-        title: a.title,
-        createdAt: a.createdAt,
-        metadata: (() => {
-          const m = a.metadata as Record<string, unknown> | undefined
-          if (!m) return undefined
-          const { files: _, ...rest } = m as Record<string, unknown> & { files?: unknown }
-          const comment = (rest.comment as string | undefined)?.slice(0, 150)
-          const body = (rest.body as string | undefined)?.slice(0, 150)
-          return { ...rest, ...(comment !== undefined ? { comment } : {}), ...(body !== undefined ? { body } : {}) }
-        })(),
-      })),
-      slackStats,
-      slack: dayData.slack.map((a) => ({
-        type: a.type,
-        channel: a.channelName ?? a.channel,
-        createdAt: a.createdAt,
-        metadata: (() => {
-          const m = a.metadata as Record<string, unknown> | undefined
-          if (!m) return undefined
-          if (a.type === 'DISCUSSION_CIRCUIT') return m
-          const text = (m.text as string | undefined)?.slice(0, 120)
-          return { ...(text !== undefined ? { text } : {}), ...(m.reaction ? { reaction: m.reaction } : {}) }
-        })(),
-      })),
-    }
+    const sections: string[] = [`📅 Data: ${dayData.date}\n`]
+    if (dayData.jira.length > 0) sections.push(buildJiraText(dayData.jira))
+    if (dayData.github.length > 0) sections.push(buildGitHubText(dayData.github))
+    if (dayData.slack.length > 0) sections.push(buildSlackText(dayData.slack))
+    if ((dayData.google ?? []).length > 0) sections.push(buildGoogleText(dayData.google ?? []))
+
+    const context = sections.join('\n\n')
+
+    const systemPrompt = [
+      'Você é um assistente técnico que escreve resumos executivos de atividades de desenvolvimento no estilo de uma folha de ponto narrativa.',
+      'Escreva em primeira pessoa, em prosa corrida — NÃO use listas, NÃO separe por plataforma, NÃO use títulos ou seções.',
+      'Narre o que foi feito no dia como se fosse um relato de ponto: o que foi trabalhado, quais tarefas foram movimentadas, quais PRs foram feitos, que reuniões ou chamadas aconteceram e o que foi tratado nelas.',
+      'Quando houver conexão entre atividades de plataformas diferentes (ex: um commit relacionado a uma issue do Jira, uma reunião que resultou numa ação técnica), mencione essa relação de forma natural no texto.',
+      'Seja direto e factual: sem adjetivos, sem frases de avaliação como "dia produtivo", sem horários específicos, sem introduções genéricas. Vá direto ao que foi feito.',
+      'Escreva no mesmo idioma dos dados (português se os dados estiverem em português).',
+      customInstructions ? `\nInstruções adicionais: ${customInstructions}` : '',
+    ].filter(Boolean).join(' ')
 
     const response = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
         model: 'gpt-4o-mini',
-        max_tokens: 400,
+        max_tokens: 900,
         messages: [
-          {
-            role: 'system',
-            content:
-              'You are a technical assistant that writes concise executive summaries of a developer\'s workday. ' +
-              'Based on the provided JSON data of Jira, GitHub, and Slack activities, write a 3–5 sentence summary highlighting: ' +
-              'what was accomplished, any blockers or reviews, and collaboration highlights. ' +
-              'Be direct and professional. Use the same language as the activity data (Portuguese if data is in Portuguese).',
-          },
-          {
-            role: 'user',
-            content: `Daily activity data for ${dayData.date}:\n${JSON.stringify(payload)}`,
-          },
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Atividades do dia ${dayData.date}:\n\n${context}` },
         ],
       },
       {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 30000,
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        timeout: 45000,
       }
     )
 

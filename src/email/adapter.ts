@@ -158,6 +158,7 @@ function sanitizePayload(payload: ReportPayload): Record<string, unknown> {
         includeDirectMessages: payload.integrations.slack.includeDirectMessages,
       } : undefined,
       openai: payload.integrations.openai ? { enabled: true } : undefined,
+      google: payload.integrations.google ? { connected: true } : undefined,
     },
   }
 }

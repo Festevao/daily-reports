@@ -196,7 +196,7 @@ async function fetchIssuesForGroup(
   endDate: string,
   groupLabel: string
 ): Promise<JiraIssue[]> {
-  const jql = `project IN (${projectIds.join(',')}) AND updated >= "${startDate}" ORDER BY updated ASC`
+  const jql = `project IN (${projectIds.join(',')}) AND updated >= "${startDate}" AND updated <= "${endDate}" ORDER BY updated ASC`
   const fields = ['summary', 'comment', 'worklog', 'created', 'reporter', 'assignee']
   let nextPageToken: string | undefined
   const issues: JiraIssue[] = []

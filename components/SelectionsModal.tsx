@@ -16,6 +16,7 @@ export interface ModalCredentials {
   githubToken: string
   slackToken: string
   openaiToken: string
+  openaiInstructions: string
 }
 
 export interface EnabledIntegrations {
@@ -23,6 +24,7 @@ export interface EnabledIntegrations {
   github: boolean
   slack: boolean
   openai: boolean
+  google: boolean
 }
 
 interface SelectionsModalProps {
@@ -31,6 +33,7 @@ interface SelectionsModalProps {
   credentials: ModalCredentials
   enabledIntegrations: EnabledIntegrations
   reportEmail: string
+  googleTokens?: { accessToken: string; refreshToken: string; email: string } | null
 }
 
 interface FetchState<T> {
@@ -118,6 +121,7 @@ export function SelectionsModal({
   credentials,
   enabledIntegrations,
   reportEmail,
+  googleTokens,
 }: SelectionsModalProps) {
   const [selectedJiraProjects, setSelectedJiraProjects] = useState<string[]>([])
   const [selectedGithubOrgs, setSelectedGithubOrgs] = useState<string[]>([])
@@ -152,6 +156,7 @@ export function SelectionsModal({
       setJobResult(null)
       setCopied(false)
       setActivePreset(null)
+      return
     }
   }, [isOpen])
 
@@ -269,6 +274,13 @@ export function SelectionsModal({
     if (enabledIntegrations.openai) {
       integrations.openai = {
         apiKey: credentials.openaiToken,
+        customInstructions: credentials.openaiInstructions || undefined,
+      }
+    }
+    if (enabledIntegrations.google && googleTokens) {
+      integrations.google = {
+        accessToken: googleTokens.accessToken,
+        refreshToken: googleTokens.refreshToken,
       }
     }
 
@@ -278,7 +290,7 @@ export function SelectionsModal({
     startDate, endDate,
     credentials, enabledIntegrations,
     selectedJiraProjects, selectedGithubOrgs, selectedGithubRepos,
-    selectedSlackChannels, slackIncludeDms,
+    selectedSlackChannels, slackIncludeDms, googleTokens,
   ])
 
   const handleSubmit = async () => {
@@ -534,6 +546,7 @@ export function SelectionsModal({
                     {validationErrors.slack && <ValidationError message={validationErrors.slack} />}
                   </div>
                 )}
+
 
                 <div className="flex flex-col gap-3">
                   <SectionHeader

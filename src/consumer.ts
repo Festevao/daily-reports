@@ -145,11 +145,11 @@ async function processMessage(raw: string): Promise<{ payload: ReportPayload | n
     const reportOutput = await buildReport(payload)
 
     const totalActivities = reportOutput.days.reduce(
-      (acc, d) => acc + d.jira.length + d.github.length + d.slack.length,
+      (acc, d) => acc + d.jira.length + d.github.length + d.slack.length + (d.google ?? []).length,
       0
     )
     const daysWithData = reportOutput.days.filter(
-      (d) => d.jira.length + d.github.length + d.slack.length > 0
+      (d) => d.jira.length + d.github.length + d.slack.length + (d.google ?? []).length > 0
     ).length
 
     step(`✅ extração concluída — ${totalActivities} atividades em ${daysWithData}/${reportOutput.days.length} dia(s)`)
@@ -159,6 +159,7 @@ async function processMessage(raw: string): Promise<{ payload: ReportPayload | n
         day.jira.length > 0 ? `Jira:${day.jira.length}` : '',
         day.github.length > 0 ? `GitHub:${day.github.length}` : '',
         day.slack.length > 0 ? `Slack:${day.slack.length}` : '',
+        (day.google ?? []).length > 0 ? `Google:${(day.google ?? []).length}` : '',
       ].filter(Boolean).join('  ')
       const ai = day.aiSummary ? '  🤖IA' : ''
       step(`   ${day.date}  ${counts || 'sem atividades'}${ai}`)

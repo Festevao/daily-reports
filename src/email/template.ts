@@ -23,6 +23,11 @@ export interface ReportPayload {
     }
     openai?: {
       apiKey: string
+      customInstructions?: string
+    }
+    google?: {
+      accessToken: string
+      refreshToken: string
     }
   }
 }
