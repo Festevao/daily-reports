@@ -12,6 +12,7 @@ export interface ModalCredentials {
   jiraBaseUrl: string
   jiraEmail: string
   jiraApiToken: string
+  jiraAccountId: string
   githubToken: string
   slackToken: string
   openaiToken: string
@@ -125,11 +126,24 @@ export function SelectionsModal({
   const [slackIncludeDms, setSlackIncludeDms] = useState(false)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [activePreset, setActivePreset] = useState<number | null>(null)
   const [validationErrors, setValidationErrors] = useState<ModalValidationErrors>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [jobResult, setJobResult] = useState<JobResult | null>(null)
   const [copied, setCopied] = useState(false)
+
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
+
+  const applyPreset = (days: number) => {
+    const end = new Date()
+    const start = new Date()
+    start.setDate(start.getDate() - (days - 1))
+    setEndDate(end.toISOString().slice(0, 10))
+    setStartDate(start.toISOString().slice(0, 10))
+    setActivePreset(days)
+    setValidationErrors((p) => ({ ...p, period: undefined }))
+  }
 
   useEffect(() => {
     if (!isOpen) {
@@ -137,6 +151,7 @@ export function SelectionsModal({
       setSubmitError(null)
       setJobResult(null)
       setCopied(false)
+      setActivePreset(null)
     }
   }, [isOpen])
 
@@ -232,6 +247,7 @@ export function SelectionsModal({
           baseUrl: credentials.jiraBaseUrl,
           email: credentials.jiraEmail,
           apiToken: credentials.jiraApiToken,
+          accountId: credentials.jiraAccountId,
         },
         projectIds: selectedJiraProjects,
       }
@@ -281,6 +297,9 @@ export function SelectionsModal({
       errors.period = 'Selecione a data de início e a data de fim'
     } else if (startDate > endDate) {
       errors.period = 'A data de início não pode ser posterior à data de fim'
+    } else {
+      const diffDays = Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86_400_000) + 1
+      if (diffDays > 60) errors.period = 'O período máximo permitido é de 60 dias'
     }
 
     if (Object.keys(errors).length > 0) {
@@ -522,17 +541,44 @@ export function SelectionsModal({
                     title="Período"
                     color="border-violet-500/30"
                   />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      { label: 'Hoje', days: 1 },
+                      { label: '15 dias', days: 15 },
+                      { label: '30 dias', days: 30 },
+                      { label: '60 dias', days: 60 },
+                    ] as const).map(({ label, days }) => (
+                      <button
+                        key={days}
+                        type="button"
+                        onClick={() => applyPreset(days)}
+                        className={[
+                          'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all duration-150',
+                          activePreset === days
+                            ? 'bg-violet-500/20 border-violet-500/50 text-violet-300'
+                            : 'bg-slate-900/60 border-slate-600 text-slate-400 hover:border-slate-500 hover:text-slate-300',
+                        ].join(' ')}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 transition-opacity ${activePreset !== null ? 'opacity-50 pointer-events-none' : ''}`}>
                     <div className="flex flex-col gap-1.5">
                       <span className="text-xs font-medium text-slate-400">Data de início</span>
                       <input
                         type="date"
                         value={startDate}
+                        max={today}
+                        disabled={activePreset !== null}
                         onChange={(e) => {
+                          setActivePreset(null)
                           setStartDate(e.target.value)
                           if (validationErrors.period) setValidationErrors((p) => ({ ...p, period: undefined }))
                         }}
-                        className="w-full rounded-lg border border-slate-600 bg-slate-900/60 px-4 py-2.5 text-sm text-slate-100 outline-none transition-all focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 hover:border-slate-500 scheme-dark"
+                        className="w-full rounded-lg border border-slate-600 bg-slate-900/60 px-4 py-2.5 text-sm text-slate-100 outline-none transition-all focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 hover:border-slate-500 scheme-dark disabled:cursor-not-allowed"
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
@@ -540,15 +586,29 @@ export function SelectionsModal({
                       <input
                         type="date"
                         value={endDate}
+                        min={startDate}
+                        max={today}
+                        disabled={activePreset !== null}
                         onChange={(e) => {
+                          setActivePreset(null)
                           setEndDate(e.target.value)
                           if (validationErrors.period) setValidationErrors((p) => ({ ...p, period: undefined }))
                         }}
-                        min={startDate}
-                        className="w-full rounded-lg border border-slate-600 bg-slate-900/60 px-4 py-2.5 text-sm text-slate-100 outline-none transition-all focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 hover:border-slate-500 scheme-dark"
+                        className="w-full rounded-lg border border-slate-600 bg-slate-900/60 px-4 py-2.5 text-sm text-slate-100 outline-none transition-all focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 hover:border-slate-500 scheme-dark disabled:cursor-not-allowed"
                       />
                     </div>
                   </div>
+
+                  {activePreset !== null && (
+                    <button
+                      type="button"
+                      onClick={() => setActivePreset(null)}
+                      className="text-xs text-slate-500 hover:text-slate-400 self-start transition-colors"
+                    >
+                      Ou inserir período personalizado →
+                    </button>
+                  )}
+
                   {validationErrors.period && <ValidationError message={validationErrors.period} />}
                 </div>
 

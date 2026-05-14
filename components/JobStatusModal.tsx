@@ -2,7 +2,7 @@
 
 import { Dialog, DialogPanel, DialogTitle } from '@headlessui/react'
 import { useState, useEffect } from 'react'
-import { X, Search, Loader2, CheckCircle2, AlertCircle, Clock, RefreshCw } from 'lucide-react'
+import { X, Search, Loader2, CheckCircle2, AlertCircle, Clock, RefreshCw, Cog, XCircle } from 'lucide-react'
 
 interface JobStatusModalProps {
   isOpen: boolean
@@ -11,6 +11,8 @@ interface JobStatusModalProps {
 
 type StatusResult =
   | { status: 'pending'; queueDepth: number | null; queuedAt: number; message?: string }
+  | { status: 'processing'; queuedAt: number; processingAt: number | null }
+  | { status: 'error'; queuedAt: number; errorMessage: string }
   | { status: 'not_found'; message: string }
 
 export function JobStatusModal({ isOpen, onClose }: JobStatusModalProps) {
@@ -57,8 +59,12 @@ export function JobStatusModal({ isOpen, onClose }: JobStatusModalProps) {
     if (e.key === 'Enter') handleCheck()
   }
 
-  const queuedAgo = result?.status === 'pending'
+  const queuedAgo = result && result.status !== 'not_found'
     ? Math.round((Date.now() - result.queuedAt) / 60000)
+    : null
+
+  const processingAgo = result?.status === 'processing' && result.processingAt
+    ? Math.round((Date.now() - result.processingAt) / 1000)
     : null
 
   return (
@@ -70,7 +76,7 @@ export function JobStatusModal({ isOpen, onClose }: JobStatusModalProps) {
           <div className="flex items-center justify-between px-4 sm:px-6 pt-5 pb-4 border-b border-slate-700">
             <div>
               <DialogTitle className="text-base font-semibold text-slate-100">
-                Consultar posição na fila
+                Consultar status do job
               </DialogTitle>
               <p className="text-xs text-slate-400 mt-0.5">Insira o Job ID recebido ao gerar o relatório</p>
             </div>
@@ -120,8 +126,8 @@ export function JobStatusModal({ isOpen, onClose }: JobStatusModalProps) {
             {result?.status === 'pending' && (
               <div className="flex flex-col gap-3 rounded-xl border border-blue-500/25 bg-blue-500/5 px-4 py-4">
                 <div className="flex items-center gap-2.5">
-                  <CheckCircle2 className="w-5 h-5 text-blue-400 shrink-0" />
-                  <span className="text-sm font-medium text-slate-200">Job encontrado na fila</span>
+                  <Clock className="w-5 h-5 text-blue-400 shrink-0" />
+                  <span className="text-sm font-medium text-slate-200">Aguardando na fila</span>
                 </div>
 
                 {result.queueDepth !== null ? (
@@ -152,11 +158,67 @@ export function JobStatusModal({ isOpen, onClose }: JobStatusModalProps) {
               </div>
             )}
 
+            {result?.status === 'processing' && (
+              <div className="flex flex-col gap-3 rounded-xl border border-violet-500/30 bg-violet-500/5 px-4 py-4">
+                <div className="flex items-center gap-2.5">
+                  <Cog className="w-5 h-5 text-violet-400 shrink-0 animate-spin" style={{ animationDuration: '2s' }} />
+                  <span className="text-sm font-medium text-slate-200">Em processamento</span>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Seu relatório está sendo gerado agora. Os dados estão sendo extraídos das plataformas
+                  e o e-mail será enviado em breve.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg bg-slate-800/80 border border-slate-700 px-3 py-3 text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-slate-400" />
+                      <p className="text-lg font-bold text-slate-100">{queuedAgo}m</p>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">enfileirado há</p>
+                  </div>
+                  {processingAgo !== null && (
+                    <div className="rounded-lg bg-slate-800/80 border border-slate-700 px-3 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <Cog className="w-3.5 h-3.5 text-violet-400" />
+                        <p className="text-lg font-bold text-slate-100">{processingAgo}s</p>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">processando há</p>
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={handleCheck}
+                  className="flex items-center justify-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors py-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Atualizar
+                </button>
+              </div>
+            )}
+
+            {result?.status === 'error' && (
+              <div className="flex flex-col gap-3 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-4">
+                <div className="flex items-center gap-2.5">
+                  <XCircle className="w-5 h-5 text-red-400 shrink-0" />
+                  <span className="text-sm font-medium text-slate-200">Erro no processamento</span>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Ocorreu um erro ao processar este relatório. Você pode tentar gerar um novo relatório.
+                </p>
+                <div className="rounded-lg bg-slate-900/60 border border-red-500/20 px-3 py-2.5">
+                  <p className="text-xs text-red-400 font-mono break-all">{result.errorMessage}</p>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Enfileirado há {queuedAgo}m
+                </p>
+              </div>
+            )}
+
             {result?.status === 'not_found' && (
               <div className="flex items-start gap-2.5 rounded-xl border border-slate-600/40 bg-slate-900/40 px-4 py-4">
-                <AlertCircle className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+                <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium text-slate-300">Job não encontrado</p>
+                  <p className="text-sm font-medium text-slate-300">Relatório entregue</p>
                   <p className="text-xs text-slate-500 mt-1 leading-relaxed">{result.message}</p>
                 </div>
               </div>

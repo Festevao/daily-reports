@@ -15,7 +15,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       status: 'not_found' as const,
-      message: 'Job não encontrado. Pode ter sido processado ou a reserva expirou (TTL: 30 min).',
+      message: 'Job não encontrado. Pode já ter sido processado com sucesso.',
+    })
+  }
+
+  if (job.status === 'processing') {
+    return NextResponse.json({
+      ok: true,
+      status: 'processing' as const,
+      queuedAt: job.queuedAt,
+      processingAt: job.processingAt ?? null,
+    })
+  }
+
+  if (job.status === 'error') {
+    return NextResponse.json({
+      ok: true,
+      status: 'error' as const,
+      queuedAt: job.queuedAt,
+      errorMessage: job.errorMessage ?? 'Erro desconhecido.',
     })
   }
 

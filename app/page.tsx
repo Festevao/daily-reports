@@ -448,6 +448,7 @@ export default function SetupPage() {
           jiraBaseUrl: form.jiraBaseUrl,
           jiraEmail: form.jiraEmail,
           jiraApiToken: form.jiraApiToken,
+          jiraAccountId: form.jiraAccountId,
           githubToken: form.githubToken,
           slackToken: form.slackToken,
           openaiToken: form.openaiToken,
