@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
       ok: true,
       status: 'error' as const,
       queuedAt: job.queuedAt,
-      errorMessage: job.errorMessage ?? 'Erro desconhecido.',
+      errorMessage: 'Erro ao processar o relatório. Verifique suas credenciais e tente novamente.',
     })
   }
 

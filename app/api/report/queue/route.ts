@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { reserveJob, releaseJob } from '@/src/job-store'
 import { publishReportJob } from '@/src/rabbitmq'
+import { validateJiraBaseUrl } from '@/src/validators'
 
 function extractFingerprints(body: Record<string, unknown>): string[] {
   const fps: string[] = []
@@ -40,6 +41,16 @@ export async function POST(req: NextRequest) {
     body = await req.json()
   } catch {
     return NextResponse.json({ ok: false, message: 'Payload inválido.' }, { status: 400 })
+  }
+
+  const jiraCredentials = (body.integrations as Record<string, unknown> | undefined)
+    ?.jira as Record<string, unknown> | undefined
+  const jiraBaseUrl = (jiraCredentials?.credentials as Record<string, unknown> | undefined)?.baseUrl
+  if (typeof jiraBaseUrl === 'string' && jiraBaseUrl) {
+    const urlError = validateJiraBaseUrl(jiraBaseUrl)
+    if (urlError) {
+      return NextResponse.json({ ok: false, message: urlError }, { status: 400 })
+    }
   }
 
   const fingerprints = extractFingerprints(body)

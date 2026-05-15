@@ -81,9 +81,6 @@ const GOOGLE_LOGO = (
   </svg>
 )
 
-const STORAGE_KEY = 'daily-reports-config'
-const ENABLED_KEY = 'daily-reports-enabled'
-
 const defaultForm: FormState = {
   reportEmail: '',
   jiraBaseUrl: '',
@@ -98,27 +95,6 @@ const defaultForm: FormState = {
 
 const defaultEnabled = { jira: true, github: true, slack: true, openai: true, google: false }
 
-function loadFromStorage(): FormState {
-  if (typeof window === 'undefined') return defaultForm
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (!stored) return defaultForm
-    return { ...defaultForm, ...JSON.parse(stored) }
-  } catch {
-    return defaultForm
-  }
-}
-
-function loadEnabledFromStorage(): typeof defaultEnabled {
-  if (typeof window === 'undefined') return defaultEnabled
-  try {
-    const stored = localStorage.getItem(ENABLED_KEY)
-    if (!stored) return defaultEnabled
-    return { ...defaultEnabled, ...JSON.parse(stored) }
-  } catch {
-    return defaultEnabled
-  }
-}
 
 export default function SetupPage() {
   const [form, setForm] = useState<FormState>(defaultForm)
@@ -143,11 +119,7 @@ export default function SetupPage() {
   }
 
   const toggleIntegration = (key: keyof typeof defaultEnabled) => {
-    setEnabled((prev) => {
-      const next = { ...prev, [key]: !prev[key] }
-      localStorage.setItem(ENABLED_KEY, JSON.stringify(next))
-      return next
-    })
+    setEnabled((prev) => ({ ...prev, [key]: !prev[key] }))
     setErrors((prev) => {
       const cleared = { ...prev }
       if (key === 'jira') {
@@ -166,6 +138,7 @@ export default function SetupPage() {
     const popup = window.open('/api/auth/google', 'google-auth', 'width=500,height=620,left=200,top=100')
 
     const onMessage = (evt: MessageEvent) => {
+      if (evt.origin !== window.location.origin) return
       if (!evt.data || evt.data.type !== 'google-auth-success') return
       window.removeEventListener('message', onMessage)
       setGoogleTokens({
@@ -190,15 +163,6 @@ export default function SetupPage() {
   const handleGoogleDisconnect = () => {
     setGoogleTokens(null)
   }
-
-  useEffect(() => {
-    setForm(loadFromStorage())
-    setEnabled(loadEnabledFromStorage())
-  }, [])
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(form))
-  }, [form])
 
   const setField = (field: keyof FormState) => (value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createJiraClient } from '@/src/jira-client'
+import { validateJiraBaseUrl } from '@/src/validators'
 
 export interface JiraProject {
   id: string
@@ -14,6 +15,11 @@ export async function POST(req: NextRequest) {
 
   if (!baseUrl || !email || !apiToken) {
     return NextResponse.json({ ok: false, message: 'Credenciais do Jira ausentes.' }, { status: 400 })
+  }
+
+  const urlError = validateJiraBaseUrl(baseUrl)
+  if (urlError) {
+    return NextResponse.json({ ok: false, message: urlError }, { status: 400 })
   }
 
   try {

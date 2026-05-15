@@ -3,6 +3,28 @@ import { createJiraClient } from './jira-client'
 
 const TIMEOUT_MS = 30_000
 
+const JIRA_HOSTNAME_RE = /^[a-z0-9-]+\.atlassian\.net$/i
+
+/**
+ * Validates that a Jira baseUrl is a safe HTTPS Atlassian URL.
+ * Returns null when valid, or an error message string when invalid.
+ */
+export function validateJiraBaseUrl(baseUrl: string): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL(baseUrl)
+  } catch {
+    return 'URL base do Jira inválida.'
+  }
+  if (parsed.protocol !== 'https:') {
+    return 'A URL base do Jira deve usar HTTPS.'
+  }
+  if (!JIRA_HOSTNAME_RE.test(parsed.hostname)) {
+    return 'A URL base do Jira deve ser um domínio *.atlassian.net.'
+  }
+  return null
+}
+
 export interface JiraCredentials {
   baseUrl: string
   email: string

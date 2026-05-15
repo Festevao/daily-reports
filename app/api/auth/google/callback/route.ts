@@ -55,8 +55,9 @@ function closePopupHtml(tokens: GoogleTokenPayload | null, errorMessage: string 
   }
 
   const payload = JSON.stringify({ type: 'google-auth-success', ...tokens })
+  const appOrigin = process.env.APP_URL ?? 'http://localhost:3000'
   return `<!DOCTYPE html><html><body>
 <p style="font-family:sans-serif;color:#16a34a;padding:24px;">✅ Conectado com sucesso! Esta janela será fechada automaticamente.</p>
-<script>window.opener?.postMessage(${payload},'*');window.close();</script>
+<script>window.opener?.postMessage(${payload},'${appOrigin}');window.close();</script>
 </body></html>`
 }

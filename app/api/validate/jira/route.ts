@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { validateJira } from '@/src/validators'
+import { validateJira, validateJiraBaseUrl } from '@/src/validators'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
@@ -7,6 +7,11 @@ export async function POST(req: NextRequest) {
 
   if (!baseUrl || !email || !apiToken || !accountId) {
     return NextResponse.json({ ok: false, message: 'Campos obrigatórios ausentes.' }, { status: 400 })
+  }
+
+  const urlError = validateJiraBaseUrl(baseUrl)
+  if (urlError) {
+    return NextResponse.json({ ok: false, message: urlError }, { status: 400 })
   }
 
   try {
