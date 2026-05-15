@@ -670,6 +670,12 @@ export default function SetupPage() {
       <JobStatusModal isOpen={isStatusModalOpen} onClose={() => setIsStatusModalOpen(false)} />
       <HelpModal topic={helpTopic} onClose={() => setHelpTopic(null)} />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
+      <footer className="mt-10 pb-6 text-center text-xs text-slate-600 flex items-center justify-center gap-4">
+        <a href="/privacy" className="hover:text-slate-400 transition-colors">Política de Privacidade</a>
+        <span>·</span>
+        <a href="/terms" className="hover:text-slate-400 transition-colors">Termos de Serviço</a>
+      </footer>
     </main>
   )
 }
