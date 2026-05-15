@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 
 export const metadata: Metadata = {
-  title: 'Termos de Serviço — Daily Reports',
-  description: 'Termos de Serviço do aplicativo Daily Reports',
+  title: 'Termos de Serviço',
+  description: 'Termos de Serviço do Daily Reports — Productivity automation tool by Felipi Trindade.',
 }
 
 export default function TermsPage() {
@@ -120,9 +120,18 @@ export default function TermsPage() {
           </Section>
         </div>
 
-        <p className="text-center text-slate-600 text-xs mt-6">
-          © {new Date().getFullYear()} {appName}
-        </p>
+        <footer className="text-center text-xs text-slate-600 mt-6 space-y-1">
+          <p className="font-medium text-slate-500">
+            <strong className="text-slate-400">Daily Reports</strong> &mdash; Productivity automation tool &mdash; by Felipi Trindade
+          </p>
+          <div className="flex items-center justify-center gap-4">
+            <a href="/privacy" className="hover:text-slate-400 transition-colors">Política de Privacidade</a>
+            <span>·</span>
+            <a href="/terms" className="hover:text-slate-400 transition-colors">Termos de Serviço</a>
+            <span>·</span>
+            <span>© {new Date().getFullYear()} Daily Reports</span>
+          </div>
+        </footer>
       </div>
     </main>
   )

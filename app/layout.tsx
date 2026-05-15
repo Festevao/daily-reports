@@ -8,14 +8,22 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: 'Daily Reports',
+  title: {
+    default: 'Daily Reports',
+    template: '%s — Daily Reports',
+  },
   description: 'Gere relatórios diários de atividade integrando Jira, GitHub, Slack e Google automaticamente.',
   applicationName: 'Daily Reports',
   authors: [{ name: 'Felipi Trindade' }],
+  icons: {
+    icon: '/favicon.svg',
+    shortcut: '/favicon.svg',
+  },
   openGraph: {
     title: 'Daily Reports',
-    description: 'Gere relatórios diários de atividade integrando Jira, GitHub, Slack e Google automaticamente.',
+    description: 'Daily Reports — Productivity automation tool by Felipi Trindade',
     type: 'website',
+    siteName: 'Daily Reports',
   },
 }
 

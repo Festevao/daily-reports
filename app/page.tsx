@@ -409,8 +409,11 @@ export default function SetupPage() {
           >
             Daily Reports
           </h1>
+          <p className="text-slate-500 mt-1 text-xs font-medium tracking-wide uppercase">
+            by Felipi Trindade
+          </p>
           <p className="text-slate-400 mt-2 text-sm leading-relaxed max-w-sm mx-auto">
-            Configure suas integrações para gerar relatórios diários automaticamente
+            Ferramenta de automação de relatórios diários de produtividade
           </p>
         </div>
 
@@ -671,10 +674,17 @@ export default function SetupPage() {
       <HelpModal topic={helpTopic} onClose={() => setHelpTopic(null)} />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
-      <footer className="mt-10 pb-6 text-center text-xs text-slate-600 flex items-center justify-center gap-4">
-        <a href="/privacy" className="hover:text-slate-400 transition-colors">Política de Privacidade</a>
-        <span>·</span>
-        <a href="/terms" className="hover:text-slate-400 transition-colors">Termos de Serviço</a>
+      <footer className="mt-10 pb-6 text-center text-xs text-slate-600 space-y-2">
+        <p className="font-medium text-slate-500">
+          <strong className="text-slate-400">Daily Reports</strong> &mdash; Productivity automation tool &mdash; by Felipi Trindade
+        </p>
+        <div className="flex items-center justify-center gap-4">
+          <a href="/privacy" className="hover:text-slate-400 transition-colors">Política de Privacidade</a>
+          <span>·</span>
+          <a href="/terms" className="hover:text-slate-400 transition-colors">Termos de Serviço</a>
+          <span>·</span>
+          <span>© {new Date().getFullYear()} Daily Reports</span>
+        </div>
       </footer>
     </main>
   )
