@@ -120,7 +120,8 @@ function createClient(token: string): AxiosInstance {
     baseURL: 'https://api.github.com',
     headers: {
       Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
       'User-Agent': 'daily-reports-app',
     },
     timeout: 30_000,
