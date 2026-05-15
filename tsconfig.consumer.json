@@ -4,7 +4,9 @@
     "noEmit": false,
     "outDir": "dist",
     "module": "CommonJS",
-    "moduleResolution": "node",
+    "rootDir": "src",
+    "moduleResolution": "node10",
+    "ignoreDeprecations": "6.0",
     "plugins": []
   },
   "include": ["src/**/*.ts"]
