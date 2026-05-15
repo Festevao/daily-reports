@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "consumer:build": "tsc -p tsconfig.consumer.json",
-    "consumer": "pnpm consumer:build && node dist/src/run-consumer.js"
+    "consumer": "pnpm consumer:build && node dist/run-consumer.js"
   },
   "keywords": [],
   "author": "",

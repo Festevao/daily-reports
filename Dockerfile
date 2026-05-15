@@ -13,4 +13,4 @@ RUN pnpm consumer:build
 
 ENV NODE_ENV=production
 
-CMD ["node", "dist/src/run-consumer.js"]
+CMD ["node", "dist/run-consumer.js"]
