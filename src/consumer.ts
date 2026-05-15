@@ -185,13 +185,16 @@ async function processMessage(raw: string): Promise<{ payload: ReportPayload | n
   }
 }
 
-export type ConsumerCleanup = () => Promise<void>
+export interface ConsumerHandle {
+  cleanup: () => Promise<void>
+  disconnected: Promise<void>
+}
 
 /**
- * Starts the RabbitMQ consumer. Returns a cleanup function to gracefully
- * close the channel and connection when the process shuts down.
+ * Starts the RabbitMQ consumer. Returns a handle with a cleanup function and
+ * a `disconnected` promise that rejects when the connection is lost.
  */
-export async function startConsumer(): Promise<ConsumerCleanup> {
+export async function startConsumer(): Promise<ConsumerHandle> {
   logSection('🚀 Daily Reports Consumer iniciando')
   step(`RabbitMQ: ${RABBITMQ_URL.replace(/:\/\/.*@/, '://*****@')}`)
   step(`Fila:     ${QUEUE_NAME}`)
@@ -199,6 +202,20 @@ export async function startConsumer(): Promise<ConsumerCleanup> {
 
   const connection = await amqplib.connect(RABBITMQ_URL)
   const channel = await connection.createChannel()
+
+  let rejectDisconnected!: (err: Error) => void
+  const disconnected = new Promise<void>((_, reject) => {
+    rejectDisconnected = reject
+  })
+
+  connection.on('error', (err: Error) => {
+    printErr(`💔 Conexão perdida: ${err.message}`)
+    rejectDisconnected(err)
+  })
+
+  connection.on('close', () => {
+    rejectDisconnected(new Error('Connection closed by broker'))
+  })
 
   await channel.assertQueue(QUEUE_NAME, { durable: true })
   channel.prefetch(1)
@@ -236,9 +253,12 @@ export async function startConsumer(): Promise<ConsumerCleanup> {
     }
   })
 
-  return async () => {
-    logSection('⏹ Encerrando consumer')
-    await channel.close()
-    await connection.close()
+  return {
+    cleanup: async () => {
+      logSection('⏹ Encerrando consumer')
+      await channel.close()
+      await connection.close()
+    },
+    disconnected,
   }
 }
