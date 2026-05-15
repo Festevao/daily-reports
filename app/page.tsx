@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { ArrowRight, Loader2, Mail, Search, LogIn, LogOut, CheckCircle2 } from 'lucide-react'
 import { InputField } from '@/components/InputField'
 import { SelectionsModal } from '@/components/SelectionsModal'
@@ -161,35 +161,19 @@ export default function SetupPage() {
     })
   }
 
-  const fetchGoogleStatus = useCallback(() => {
-    fetch('/api/auth/google/status')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.connected) {
-          setGoogleTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken, email: data.email })
-        } else {
-          setGoogleTokens(null)
-        }
-      })
-      .catch(() => {})
-  }, [])
-
   const handleGoogleLogin = () => {
     setGoogleAuthLoading(true)
     const popup = window.open('/api/auth/google', 'google-auth', 'width=500,height=620,left=200,top=100')
 
     const onMessage = (evt: MessageEvent) => {
-      if (evt.data !== 'google-auth-success') return
+      if (!evt.data || evt.data.type !== 'google-auth-success') return
       window.removeEventListener('message', onMessage)
-      fetch('/api/auth/google/status')
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.connected) {
-            setGoogleTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken, email: data.email })
-          }
-        })
-        .catch(() => {})
-        .finally(() => setGoogleAuthLoading(false))
+      setGoogleTokens({
+        accessToken: evt.data.accessToken,
+        refreshToken: evt.data.refreshToken,
+        email: evt.data.email,
+      })
+      setGoogleAuthLoading(false)
     }
 
     window.addEventListener('message', onMessage)
@@ -204,15 +188,13 @@ export default function SetupPage() {
   }
 
   const handleGoogleDisconnect = () => {
-    fetch('/api/auth/google/disconnect', { method: 'DELETE' }).catch(() => {})
     setGoogleTokens(null)
   }
 
   useEffect(() => {
     setForm(loadFromStorage())
     setEnabled(loadEnabledFromStorage())
-    fetchGoogleStatus()
-  }, [fetchGoogleStatus])
+  }, [])
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(form))
