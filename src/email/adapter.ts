@@ -1,25 +1,16 @@
-import nodemailer from 'nodemailer'
+import { Resend } from 'resend'
 import { step, printErr } from '../logger'
 import type { ReportPayload } from '../email/template'
 import type { OpenAIUsage } from '../types/report.types'
 
-const EMAIL_USER = process.env.EMAIL_USER
-const EMAIL_APP_PASSWORD = process.env.EMAIL_APP_PASSWORD
+const RESEND_API_KEY = process.env.RESEND_API_KEY
+const EMAIL_FROM = process.env.EMAIL_FROM ?? 'Daily Reports <onboarding@resend.dev>'
 
-function getTransporter() {
-  if (!EMAIL_USER || !EMAIL_APP_PASSWORD) {
-    throw new Error('Missing EMAIL_USER or EMAIL_APP_PASSWORD environment variables.')
+function getClient(): Resend {
+  if (!RESEND_API_KEY) {
+    throw new Error('Missing RESEND_API_KEY environment variable.')
   }
-
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-      user: EMAIL_USER,
-      pass: EMAIL_APP_PASSWORD,
-    },
-  })
+  return new Resend(RESEND_API_KEY)
 }
 
 export interface JsonAttachment {
@@ -109,26 +100,26 @@ export async function sendReportEmail(options: SendReportEmailOptions): Promise<
   step(`   Relatório: ${reportFilename} (${(htmlContent.length / 1024).toFixed(1)} KB)`)
   step(`   JSON:      ${jsonAttachments.map((a) => a.filename).join(', ') || 'nenhum'}`)
 
-  const transporter = getTransporter()
+  const resend = getClient()
 
-  await transporter.sendMail({
-    from: `"Daily Reports" <${EMAIL_USER}>`,
+  const { error } = await resend.emails.send({
+    from: EMAIL_FROM,
     to,
     subject,
     html: emailBody,
     attachments: [
       {
         filename: reportFilename,
-        content: htmlContent,
-        contentType: 'text/html; charset=utf-8',
+        content: Buffer.from(htmlContent).toString('base64'),
       },
       ...jsonAttachments.map((a) => ({
         filename: a.filename,
-        content: a.content,
-        contentType: 'application/json; charset=utf-8',
+        content: Buffer.from(a.content).toString('base64'),
       })),
     ],
   })
+
+  if (error) throw new Error(`Resend error: ${error.message}`)
 
   step(`✅ e-mail enviado com sucesso para ${to}`)
 }
@@ -268,13 +259,15 @@ export async function sendErrorEmail({ payload, err }: ErrorEmailOptions): Promi
 
   step(`📧 enviando e-mail de erro para ${reportEmail}...`)
 
-  const transporter = getTransporter()
-  await transporter.sendMail({
-    from: `"Daily Reports" <${EMAIL_USER}>`,
+  const resend = getClient()
+  const { error } = await resend.emails.send({
+    from: EMAIL_FROM,
     to: reportEmail,
     subject,
     html,
   })
+
+  if (error) throw new Error(`Resend error: ${error.message}`)
 
   step(`✅ e-mail de erro enviado para ${reportEmail}`)
 }
